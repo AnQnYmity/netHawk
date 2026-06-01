@@ -26,4 +26,15 @@
 - 完整的 `///` 文档注释（100% 公开项覆盖）
 - 编写 `CONTRIBUTING.md` 贡献指南
 
-[0.1.0]: https://github.com/your-org/nethawk/releases/tag/v0.1.0
+## [0.1.1] — 2026-06-01
+
+### Added
+- 正式引入 `pcap` 库，修改了 `Cargo.toml`，build success
+- 新创建了 `capture.rs`，定义结构体 `CaptureEngine` 并实现方法 `new()`、`run()`
+- `CaptureArgs::run()` 委托给 `CaptureEngine`，cli.rs 不再直接持有 pcap 逻辑
+- 支持 BPF 过滤器（`-f`）、包数上限（`-c`）、混杂模式
+- 正式启动了抓包循环流程，现在可以在终端看到每个数据包的字节数输出
+- 更新 `README.md`，新增系统依赖说明（需安装 `libpcap-dev`）
+
+### Known Issues
+- `CaptureEngine.output` 字段暂未使用，构建时有 dead_code warning，待阶段1 pcap 文件写入功能实现后消除

@@ -17,6 +17,7 @@
 //! 同时支持 `RUST_LOG` 环境变量覆盖日志级别。
 
 mod cli;
+mod capture;
 
 use clap::Parser;
 use cli::{Cli, Commands};

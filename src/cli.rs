@@ -9,6 +9,7 @@
 //! 每个子命令均提供参数校验方法，确保用户输入合法后再执行。
 
 use clap::{Parser, Subcommand};
+use crate::capture::CaptureEngine;
 
 // ============================================================================
 // 顶层 CLI
@@ -56,7 +57,7 @@ pub enum Commands {
 // 公共校验工具
 // ============================================================================
 
-/// 校验数值参数是否在合法区间内。
+/// 校验具有标签 `label` 的数值参数是否在合法区间内。
 ///
 /// 返回 `Ok(())` 或包含错误描述的字符串。
 fn validate_range(value: i64, min: i64, max: i64, label: &str) -> Result<(), String> {
@@ -154,7 +155,6 @@ impl CaptureArgs {
         tracing::info!("[capture] 快照长度: {}", self.snaplen);
         tracing::info!("[capture] 超时: {} ms", self.timeout);
 
-        println!("实时捕获模式（尚未实现）");
         println!("  接口: {}", self.interface);
         if let Some(ref f) = self.filter {
             println!("  过滤器: {}", f);
@@ -165,6 +165,10 @@ impl CaptureArgs {
         if let Some(c) = self.count {
             println!("  包数限制: {}", c);
         }
+        
+        // 创建监听引擎
+        CaptureEngine::new(self)?.run()?;
+        
         Ok(())
     }
 }
