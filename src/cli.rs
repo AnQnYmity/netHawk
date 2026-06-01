@@ -8,8 +8,8 @@
 //!
 //! 每个子命令均提供参数校验方法，确保用户输入合法后再执行。
 
-use clap::{Parser, Subcommand};
 use crate::capture::CaptureEngine;
+use clap::{Parser, Subcommand};
 
 // ============================================================================
 // 顶层 CLI
@@ -165,10 +165,10 @@ impl CaptureArgs {
         if let Some(c) = self.count {
             println!("  包数限制: {}", c);
         }
-        
+
         // 创建监听引擎
         CaptureEngine::new(self)?.run()?;
-        
+
         Ok(())
     }
 }
