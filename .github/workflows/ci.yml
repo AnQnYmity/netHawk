@@ -43,6 +43,8 @@ jobs:
       matrix:
         os: [ubuntu-latest]
     steps:
+      - name: Install libpcap (C library)
+        run: sudo apt-get update && sudo apt-get install -y libpcap-dev
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
