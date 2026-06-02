@@ -38,3 +38,9 @@
 
 ### Known Issues
 - `CaptureEngine.output` 字段暂未使用，构建时有 dead_code warning，待阶段1 pcap 文件写入功能实现后消除
+
+## [0.2.0] - 2026-06-02
+- Stage 1 已经完成，可在指定网卡上实时抓包并写入 pcap 文件，Ctrl+C 后输出统计信息
+- 引入了 `ctrlc` 库
+- 修改了 `capture.rs` 的核心循环逻辑：现在循环会监听 `SIGINT` 信号
+- 编写 1 个测试用例，修订 2 个原有测试用例

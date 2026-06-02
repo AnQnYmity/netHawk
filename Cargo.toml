@@ -22,6 +22,7 @@ tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 pcap = "2"
+ctrlc = "3"
 
 [features]
 default = []
