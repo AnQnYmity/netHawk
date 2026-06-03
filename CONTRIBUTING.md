@@ -85,7 +85,8 @@ netHawk/
 ├── .github/workflows/   # CI/CD 配置
 ├── src/
 │   ├── main.rs          # 入口 + 日志初始化
-│   └── cli.rs           # clap CLI 定义与子命令
+│   ├── cli.rs           # clap CLI 定义与子命令
+|   └── capture.rs       # 抓包引擎
 ├── Cargo.toml           # 项目元数据与依赖
 ├── PROJECT_PLAN.md      # 项目推进方案
 └── CONTRIBUTING.md      # 本文件
@@ -93,7 +94,7 @@ netHawk/
 
 ## 开发阶段
 
-当前项目处于 **阶段 0**：项目骨架搭建。后续阶段参见 [PROJECT_PLAN.md](PROJECT_PLAN.md)。
+当前项目处于 **阶段 1**：核心捕获引擎。后续阶段参见 [PROJECT_PLAN.md](PROJECT_PLAN.md)。
 
 ## 获取帮助
 

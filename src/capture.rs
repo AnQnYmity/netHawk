@@ -9,6 +9,7 @@
 //! engine.run()?;
 //! ```
 
+use crate::protocol::*;
 use crate::cli::CaptureArgs;
 use pcap::Capture;
 use std::sync::Arc;
