@@ -15,7 +15,7 @@ use dns::DNSRequest;
 pub enum ParseResult<'a> {
     Ethernet(EthernetFrame<'a>),
     IPv4(IPv4Packet<'a>),
-    IPv6(IPv6Packet),
+    IPv6(IPv6Packet<'a>),
     TCP(TCPSegment<'a>),
     UDP(UDPSegment),
     HTTP(HTTPMessage),

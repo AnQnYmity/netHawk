@@ -94,7 +94,7 @@ netHawk/
 
 ## 开发阶段
 
-当前项目处于 **阶段 1**：核心捕获引擎。后续阶段参见 [PROJECT_PLAN.md](PROJECT_PLAN.md)。
+当前项目处于 **阶段 2**：协议解析框架。后续阶段参见 [PROJECT_PLAN.md](PROJECT_PLAN.md)。
 
 ## 获取帮助
 
