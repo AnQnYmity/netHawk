@@ -1,32 +1,46 @@
+//! 以太网帧解析模块
+//!
+//! 解析 Ethernet II 帧头部（固定 14 字节），提取源/目的 MAC 地址、
+//! EtherType 和上层协议载荷。
+//!
+//! # 参考
+//! - IEEE 802.3 — Ethernet
+
+/// 以太网帧（Ethernet II 格式）。
+///
+/// 固定 14 字节头部：6 字节目的 MAC + 6 字节源 MAC + 2 字节 EtherType。
 pub struct EthernetFrame<'a> {
+    /// 目的 MAC 地址。
     pub dst_mac: [u8; 6],
+    /// 源 MAC 地址。
     pub src_mac: [u8; 6],
+    /// 上层协议类型（0x0800 = IPv4, 0x86DD = IPv6, 0x0806 = ARP）。
     pub ethernet_type: u16,
+    /// 上层协议载荷（零拷贝引用）。
     pub payload: &'a [u8],
 }
 
 impl<'a> EthernetFrame<'a> {
-
-    /// 从 `Packet` 类型解析出以太网帧头
-    /// 
+    /// 从原始字节解析以太网帧头。
+    ///
+    /// 需要至少 14 字节。返回的 `payload` 指向第 15 字节开始的数据。
+    ///
     /// # 错误
-    /// 
-    /// 以太网帧过短的时候返回错误。
+    ///
+    /// 帧长度不足 14 字节时返回错误。
     pub fn parse(raw: &'a [u8]) -> anyhow::Result<Self> {
         if raw.len() < 14 {
             anyhow::bail!("以太网帧长度过短：{} 字节", raw.len());
         }
         Ok(Self {
-            // try_into(): 将动态大小数组切片转为确定大小, [u8] -> [u8; 6]
             dst_mac: raw[0..6].try_into()?,
             src_mac: raw[6..12].try_into()?,
             ethernet_type: u16::from_be_bytes([raw[12], raw[13]]),
-            // 数组切片后的类型是 [u8] 需要加上引用
             payload: &raw[14..],
         })
     }
 
-    /// 打印 MAC 地址。
+    /// 格式化 MAC 地址为 `xx:xx:xx:xx:xx:xx` 形式。
     pub fn format_mac(mac: &[u8; 6]) -> String {
         format!(
             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
