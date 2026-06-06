@@ -80,7 +80,7 @@ impl CaptureEngine {
         while running.load(Ordering::SeqCst) {
             match self.cap.next_packet() {
                 Ok(packet) => {
-                    println!("新抓取了 {} 字节", packet.data.len());
+                    print_packet(packet.data);
 
                     // .as_mut() 拿到 Option 中的可变引用，不将其 move 出来。
                     if let Some(w) = writer.as_mut() {
@@ -103,6 +103,147 @@ impl CaptureEngine {
         }
         println!("共抓取了 {} 个数据包，{} 字节。", captured, byte);
         Ok(())
+    }
+}
+
+// ============================================================================
+// 协议分发函数 — 按上层协议字段路由到下一层解析器
+// ============================================================================
+
+/// 从以太网帧分发到网络层（IPv4 / IPv6 / ARP）。
+fn dispatch_from_ethernet<'a>(eth: &EthernetFrame<'a>) -> anyhow::Result<ParseResult<'a>> {
+    match eth.ethernet_type {
+        0x0800 => Ok(ParseResult::IPv4(IPv4Packet::parse(eth.payload)?)),
+        0x86DD => Ok(ParseResult::IPv6(IPv6Packet::parse(eth.payload)?)),
+        0x0806 => Ok(ParseResult::NotSupported), // ARP
+        _ => Ok(ParseResult::Unknown),
+    }
+}
+
+/// 从 IPv4 分发到传输层（TCP / UDP / ICMP）。
+fn dispatch_from_ipv4<'a>(ipv4: &IPv4Packet<'a>) -> anyhow::Result<ParseResult<'a>> {
+    match ipv4.next_protocol {
+        6 => Ok(ParseResult::TCP(TCPSegment::parse(ipv4.payload)?)),
+        17 => Ok(ParseResult::UDP(UDPSegment::parse(ipv4.payload)?)),
+        1 => Ok(ParseResult::NotSupported), // ICMP
+        _ => Ok(ParseResult::Unknown),
+    }
+}
+
+/// 从 IPv6 分发到传输层（TCP / UDP / ICMPv6）。
+fn dispatch_from_ipv6<'a>(ipv6: &IPv6Packet<'a>) -> anyhow::Result<ParseResult<'a>> {
+    match ipv6.next_header {
+        6 => Ok(ParseResult::TCP(TCPSegment::parse(ipv6.payload)?)),
+        17 => Ok(ParseResult::UDP(UDPSegment::parse(ipv6.payload)?)),
+        58 => Ok(ParseResult::NotSupported), // ICMPv6
+        _ => Ok(ParseResult::Unknown),
+    }
+}
+
+// ============================================================================
+// 数据包打印 — 顺序解析 → 逐层打印
+// ============================================================================
+
+/// 从原始字节顺序解析并打印各层协议信息。
+///
+/// 解析链：Ethernet → IP → TCP/UDP。每层解析后立即打印摘要，
+/// 再分发到下一层。解析失败时不 panic，打印错误信息并继续。
+fn print_packet(raw: &[u8]) {
+    // ── L2: 以太网 ──
+    let eth = match EthernetFrame::parse(raw) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("  [L2 解析失败] {}", e);
+            return;
+        }
+    };
+    println!(
+        "  ETH  {} → {}  type={:#06x}",
+        EthernetFrame::format_mac(&eth.src_mac),
+        EthernetFrame::format_mac(&eth.dst_mac),
+        eth.ethernet_type,
+    );
+
+    // ── L2 → L3 ──
+    let l3 = match dispatch_from_ethernet(&eth) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("  [L3 分发失败] {}", e);
+            return;
+        }
+    };
+
+    // ── L3: 网络层 ──
+    match l3 {
+        ParseResult::IPv4(ref ipv4) => {
+            println!(
+                "  IPv4 {} → {}  ttl={}  proto={}",
+                IPv4Packet::format_ip(&ipv4.src_ip),
+                IPv4Packet::format_ip(&ipv4.dst_ip),
+                ipv4.ttl,
+                ipv4.next_protocol,
+            );
+            match dispatch_from_ipv4(ipv4) {
+                Ok(l4) => print_transport(&l4),
+                Err(e) => eprintln!("  [L4 分发失败] {}", e),
+            }
+        }
+        ParseResult::IPv6(ref ipv6) => {
+            println!(
+                "  IPv6 {} → {}  hop={}  nh={}",
+                IPv6Packet::format_ip(&ipv6.src_ip),
+                IPv6Packet::format_ip(&ipv6.dst_ip),
+                ipv6.hop_limit,
+                ipv6.next_header,
+            );
+            match dispatch_from_ipv6(ipv6) {
+                Ok(l4) => print_transport(&l4),
+                Err(e) => eprintln!("  [L4 分发失败] {}", e),
+            }
+        }
+        ParseResult::NotSupported => println!("  [L3] 不支持的上层协议"),
+        ParseResult::Unknown => println!("  [L3] 未知 EtherType"),
+        _ => {}
+    }
+}
+
+/// 打印传输层（TCP / UDP）摘要。
+fn print_transport(l4: &ParseResult<'_>) {
+    match l4 {
+        ParseResult::TCP(tcp) => {
+            println!(
+                "  TCP  :{} → :{}  {}  seq={}",
+                tcp.src_port,
+                tcp.dst_port,
+                format_tcp_flags(tcp.flags),
+                tcp.seq,
+            );
+        }
+        ParseResult::UDP(udp) => {
+            println!(
+                "  UDP  :{} → :{}  len={}",
+                udp.src_port, udp.dst_port, udp.len,
+            );
+        }
+        ParseResult::NotSupported => println!("  [L4] 不支持的传输层协议"),
+        ParseResult::Unknown => println!("  [L4] 未知协议号"),
+        _ => {}
+    }
+}
+
+/// 格式化 TCP 标志位为简写字符串（如 `[SYN]`、`[SYN,ACK]`）。
+fn format_tcp_flags(flags: u8) -> String {
+    let mut parts = Vec::new();
+    if flags & 0x01 != 0 { parts.push("FIN"); }
+    if flags & 0x02 != 0 { parts.push("SYN"); }
+    if flags & 0x04 != 0 { parts.push("RST"); }
+    if flags & 0x08 != 0 { parts.push("PSH"); }
+    if flags & 0x10 != 0 { parts.push("ACK"); }
+    if flags & 0x20 != 0 { parts.push("URG"); }
+    if parts.is_empty() {
+        "[NONE]".to_string()
+    } else {
+        format!("[{}]", parts.join(","))
     }
 }
 

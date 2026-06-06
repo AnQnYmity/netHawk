@@ -20,12 +20,12 @@ pub mod udp;
 pub mod http;
 pub mod dns;
 
-use ethernet::EthernetFrame;
-use ip::{IPv4Packet, IPv6Packet};
-use tcp::TCPSegment;
-use udp::UDPSegment;
-use http::HTTPMessage;
-use dns::DNSRequest;
+pub use ethernet::EthernetFrame;
+pub use ip::{IPv4Packet, IPv6Packet};
+pub use tcp::TCPSegment;
+pub use udp::UDPSegment;
+pub use http::HTTPMessage;
+pub use dns::DNSRequest;
 
 /// 协议解析统一结果。
 ///
@@ -46,4 +46,8 @@ pub enum ParseResult<'a> {
     HTTP(HTTPMessage<'a>),
     /// DNS 报文。
     DNS(DNSRequest),
+    /// 暂不支持
+    NotSupported,
+    /// 未知类型
+    Unknown,
 }
