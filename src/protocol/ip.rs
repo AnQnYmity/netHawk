@@ -71,7 +71,7 @@ impl<'a> IPv4Packet<'a> {
             next_protocol: raw[9],
             src_ip: raw[12..16].try_into()?,
             dst_ip: raw[16..20].try_into()?,
-            payload: &raw[header_len..],
+            payload: &raw[header_len..raw.len()],
         })
     }
 

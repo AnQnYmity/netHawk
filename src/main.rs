@@ -192,6 +192,7 @@ mod tests {
             output: None,
             snaplen: 65535,
             timeout: 1000,
+            show_details: false,
         };
         // 参数合法，错误只能来自网卡权限/不存在，不是校验失败
         let result = args.run();
@@ -214,6 +215,7 @@ mod tests {
             output: None,
             snaplen: 0, // 非法值
             timeout: 1000,
+            show_details: false,
         };
         assert!(args.run().is_err());
     }

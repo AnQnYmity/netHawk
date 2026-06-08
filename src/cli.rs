@@ -118,6 +118,10 @@ pub struct CaptureArgs {
     /// 超时时间（毫秒），范围 1–3600000（1 小时），默认 1000。
     #[arg(short = 't', long = "timeout", default_value = "1000")]
     pub timeout: i32,
+
+    /// 数据包详细信息。
+    #[arg(short = 'V', long = "verbose-output")]
+    pub show_details: bool,
 }
 
 impl CaptureArgs {
@@ -154,6 +158,7 @@ impl CaptureArgs {
         tracing::info!("[capture] 输出文件: {:?}", self.output);
         tracing::info!("[capture] 快照长度: {}", self.snaplen);
         tracing::info!("[capture] 超时: {} ms", self.timeout);
+        tracing::info!("[capture] 详细输出: {}", self.show_details);
 
         println!("  接口: {}", self.interface);
         if let Some(ref f) = self.filter {
@@ -429,6 +434,7 @@ mod tests {
             output: None,
             snaplen: 65535,
             timeout: 1000,
+            show_details: true,
         };
         assert!(args.validate().is_ok());
     }
@@ -442,6 +448,7 @@ mod tests {
             output: None,
             snaplen: 0,
             timeout: 1000,
+            show_details: true,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("快照长度"));
@@ -456,6 +463,7 @@ mod tests {
             output: None,
             snaplen: 1024,
             timeout: 0,
+            show_details: true,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("超时时间"));
@@ -470,6 +478,7 @@ mod tests {
             output: None,
             snaplen: 1024,
             timeout: 1000,
+            show_details: true,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("包数限制"));
@@ -484,6 +493,7 @@ mod tests {
             output: None,
             snaplen: 65535,
             timeout: 1000,
+            show_details: true,
         };
         assert!(args.validate().is_ok());
     }
@@ -497,6 +507,7 @@ mod tests {
             output: None,
             snaplen: 1024,
             timeout: 3_600_000,
+            show_details: true,
         };
         assert!(args.validate().is_ok());
     }

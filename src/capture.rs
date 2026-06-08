@@ -27,6 +27,9 @@ pub struct CaptureEngine {
 
     /// 指定输出路径。
     output: Option<String>,
+
+    /// 详细输出模式。
+    verbose: bool,
 }
 
 impl CaptureEngine {
@@ -53,6 +56,7 @@ impl CaptureEngine {
             cap,
             limit,
             output: args.output.clone(),
+            verbose: args.show_details,
         })
     }
 
@@ -80,8 +84,11 @@ impl CaptureEngine {
         while running.load(Ordering::SeqCst) {
             match self.cap.next_packet() {
                 Ok(packet) => {
-                    print_packet(packet.data);
-
+                    if self.verbose {
+                        print_packet(packet.data);
+                    } else {
+                        print_one_liner(packet.data, packet.header.ts.tv_sec as i64, packet.header.ts.tv_usec as i64);
+                    }
                     // .as_mut() 拿到 Option 中的可变引用，不将其 move 出来。
                     if let Some(w) = writer.as_mut() {
                         w.write(&packet);
@@ -205,6 +212,100 @@ fn print_packet(raw: &[u8]) {
         ParseResult::Unknown => println!("  [L3] 未知 EtherType"),
         _ => {}
     }
+    println!("\n");
+}
+
+/// 一行摘要输出（默认模式）。
+///
+/// 格式：`HH:MM:SS.uuuuuu  PROTO  src_ip:port → dst_ip:port  [FLAGS]  LENB`
+fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
+    let ts = format_timestamp(tv_sec, tv_usec);
+    let len = raw.len();
+
+    // L2
+    let eth = match EthernetFrame::parse(raw) {
+        Ok(e) => e,
+        Err(_) => {
+            println!("{ts}  ???  [L2 解析失败]  {len}B");
+            return;
+        }
+    };
+
+    // L2 → L3
+    let l3 = match dispatch_from_ethernet(&eth) {
+        Ok(r) => r,
+        Err(_) => {
+            println!("{ts}  ETH  [L3 分发失败]  {len}B");
+            return;
+        }
+    };
+
+    match l3 {
+        ParseResult::IPv4(ref ipv4) => {
+            let src = IPv4Packet::format_ip(&ipv4.src_ip);
+            let dst = IPv4Packet::format_ip(&ipv4.dst_ip);
+            let proto = protocol_name(ipv4.next_protocol);
+            match dispatch_from_ipv4(ipv4) {
+                Ok(l4) => print_l4_one_liner(&ts, proto, &src, &dst, &l4, len),
+                Err(_) => println!("{ts}  {proto}  {src} → {dst}  {len}B"),
+            }
+        }
+        ParseResult::IPv6(ref ipv6) => {
+            let src = IPv6Packet::format_ip(&ipv6.src_ip);
+            let dst = IPv6Packet::format_ip(&ipv6.dst_ip);
+            let proto = protocol_name(ipv6.next_header);
+            match dispatch_from_ipv6(ipv6) {
+                Ok(l4) => print_l4_one_liner(&ts, proto, &src, &dst, &l4, len),
+                Err(_) => println!("{ts}  {proto}  {src} → {dst}  {len}B"),
+            }
+        }
+        ParseResult::NotSupported => println!("{ts}  ETH  [L3 不支持]  {len}B"),
+        ParseResult::Unknown => println!("{ts}  ETH  type={:#06x}  {len}B", eth.ethernet_type),
+        _ => {}
+    }
+}
+
+/// 格式化 Unix 时间戳为 `HH:MM:SS.uuuuuu`。
+fn format_timestamp(tv_sec: i64, tv_usec: i64) -> String {
+    let secs_since_midnight = tv_sec.rem_euclid(86400);
+    let h = secs_since_midnight / 3600;
+    let m = (secs_since_midnight % 3600) / 60;
+    let s = secs_since_midnight % 60;
+    format!("{h:02}:{m:02}:{s:02}.{tv_usec:06}")
+}
+
+/// 协议号 → 缩写。
+fn protocol_name(proto: u8) -> &'static str {
+    match proto {
+        1 => "ICMP",
+        6 => "TCP",
+        17 => "UDP",
+        58 => "ICMPv6",
+        _ => "???",
+    }
+}
+
+/// 打印传输层一行摘要。
+fn print_l4_one_liner(ts: &str, proto: &str, src: &str, dst: &str, l4: &ParseResult<'_>, len: usize) {
+    match l4 {
+        ParseResult::TCP(tcp) => {
+            println!(
+                "{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {flags}  {len}B",
+                sp = tcp.src_port,
+                dp = tcp.dst_port,
+                flags = format_tcp_flags(tcp.flags),
+            );
+        }
+        ParseResult::UDP(udp) => {
+            println!(
+                "{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {len}B",
+                sp = udp.src_port,
+                dp = udp.dst_port,
+            );
+        }
+        ParseResult::NotSupported => println!("{ts}  {proto}  {src} → {dst}  [L4 不支持]  {len}B"),
+        _ => println!("{ts}  {proto}  {src} → {dst}  {len}B"),
+    }
 }
 
 /// 打印传输层（TCP / UDP）摘要。
@@ -262,6 +363,7 @@ mod tests {
             output: None,
             snaplen: 65535,
             timeout: 1000,
+            show_details: true,
         };
         assert!(CaptureEngine::new(&args).is_err());
     }

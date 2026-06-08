@@ -51,6 +51,7 @@ pub struct DNSQuestion {
 pub struct DNSRequest {
     pub header: DNSHeader,
     pub questions: Vec<DNSQuestion>,
+    // 通常一次 DNS Request 包含多个 Question
 }
 
 impl DNSRequest {

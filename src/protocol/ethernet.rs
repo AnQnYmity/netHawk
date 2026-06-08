@@ -36,7 +36,7 @@ impl<'a> EthernetFrame<'a> {
             dst_mac: raw[0..6].try_into()?,
             src_mac: raw[6..12].try_into()?,
             ethernet_type: u16::from_be_bytes([raw[12], raw[13]]),
-            payload: &raw[14..],
+            payload: &raw[14..raw.len()],
         })
     }
 

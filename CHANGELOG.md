@@ -58,3 +58,14 @@
 ### Known Issues
 - 部分字段依旧没有加入。
 - 结构体未被使用，会出现相关 warning.
+
+## [0.2.3] - 2026-06-06
+- 用 dispatch_from_ethernet / dispatch_from_ipv4 / dispatch_from_ipv6 替代嵌套 match 的 get_next_protocol，每条分发逻辑独立为一个函数
+- 重写 print_packet 为顺序解析-逐层打印：ETH → IP → TCP/UDP 
+- 新增 print_transport 和 format_tcp_flags 辅助函数 
+- 修复协议号 17 映射为 TCP 的 bug（应为 UDP） 
+- UDPSegment 补全字段与 parse() 方法 
+- 抓包循环接入 print_packet，替代仅打印字节数的旧逻辑
+
+### Known Issues
+- ARP 暂不支持。

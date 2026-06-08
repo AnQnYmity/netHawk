@@ -13,6 +13,10 @@ categories = ["network-programming", "command-line-utilities"]
 name = "nethawk"
 path = "src/main.rs"
 
+[lib]
+name = "nethawk"
+path = "src/lib.rs"
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -23,6 +27,9 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 pcap = "2"
 ctrlc = "3"
+
+[dev-dependencies]
+proptest = "1"
 
 [features]
 default = []

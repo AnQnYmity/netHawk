@@ -52,7 +52,7 @@ impl<'a> TCPSegment<'a> {
             seq: u32::from_be_bytes(raw[4..8].try_into()?),
             ack: u32::from_be_bytes(raw[8..12].try_into()?),
             flags: raw[13],
-            payload: &raw[data_offset..],
+            payload: &raw[data_offset..raw.len()],
         })
     }
 }
