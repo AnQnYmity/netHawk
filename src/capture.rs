@@ -14,6 +14,8 @@ use crate::cli::CaptureArgs;
 use pcap::Capture;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Instant;
+use colored::Colorize;
 
 /// 网络数据包捕获引擎
 ///
@@ -82,6 +84,7 @@ impl CaptureEngine {
 
         // 抓包循环（非阻塞：无包时立即返回，每 50ms 检查一次 running）
         while running.load(Ordering::SeqCst) {
+            let now = Instant::now();
             match self.cap.next_packet() {
                 Ok(packet) => {
                     if self.verbose {
@@ -107,6 +110,7 @@ impl CaptureEngine {
                 }
                 Err(_) => break, // 真实错误，退出
             }
+            println!("解析数据包耗时：{} μs。", now.elapsed().as_micros());
         }
         println!("共抓取了 {} 个数据包，{} 字节。", captured, byte);
         Ok(())
@@ -160,22 +164,23 @@ fn print_packet(raw: &[u8]) {
     let eth = match EthernetFrame::parse(raw) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("  [L2 解析失败] {}", e);
+            let line = format!("  [L2 解析失败] {}", e);
+            eprintln!("{}", line.red());
             return;
         }
     };
-    println!(
-        "  ETH  {} → {}  type={:#06x}",
+    let ethline = format!("  ETH  {} → {}  type={:#06x}",
         EthernetFrame::format_mac(&eth.src_mac),
         EthernetFrame::format_mac(&eth.dst_mac),
-        eth.ethernet_type,
-    );
+        eth.ethernet_type);
+    println!("{}", ethline.cyan());
 
     // ── L2 → L3 ──
     let l3 = match dispatch_from_ethernet(&eth) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("  [L3 分发失败] {}", e);
+            let line = format!("  [L3 分发失败] {}", e); 
+            eprintln!("{}", line.red());
             return;
         }
     };
@@ -183,33 +188,39 @@ fn print_packet(raw: &[u8]) {
     // ── L3: 网络层 ──
     match l3 {
         ParseResult::IPv4(ref ipv4) => {
-            println!(
-                "  IPv4 {} → {}  ttl={}  proto={}",
+            let ipline = format!("  IPv4 {} → {}  ttl={}  proto={}",
                 IPv4Packet::format_ip(&ipv4.src_ip),
                 IPv4Packet::format_ip(&ipv4.dst_ip),
                 ipv4.ttl,
-                ipv4.next_protocol,
-            );
+                ipv4.next_protocol);
+            println!("{}", ipline.blue());
             match dispatch_from_ipv4(ipv4) {
                 Ok(l4) => print_transport(&l4),
-                Err(e) => eprintln!("  [L4 分发失败] {}", e),
+                Err(e) => {
+                    let line = format!("  [L4 分发失败] {}", e);
+                    eprintln!("{}", line.red());
+                    return;
+                }
             }
         }
         ParseResult::IPv6(ref ipv6) => {
-            println!(
-                "  IPv6 {} → {}  hop={}  nh={}",
+            let ipline = format!("  IPv6 {} → {}  hop={}  nh={}",
                 IPv6Packet::format_ip(&ipv6.src_ip),
                 IPv6Packet::format_ip(&ipv6.dst_ip),
                 ipv6.hop_limit,
-                ipv6.next_header,
-            );
+                ipv6.next_header);
+            println!("{}", ipline.blue());
             match dispatch_from_ipv6(ipv6) {
                 Ok(l4) => print_transport(&l4),
-                Err(e) => eprintln!("  [L4 分发失败] {}", e),
+                Err(e) => {
+                    let line = format!("  [L4 分发失败] {}", e);
+                    eprintln!("{}", line.red());
+                    return;
+                }
             }
         }
-        ParseResult::NotSupported => println!("  [L3] 不支持的上层协议"),
-        ParseResult::Unknown => println!("  [L3] 未知 EtherType"),
+        ParseResult::NotSupported => println!("{}", "  [L3] 不支持的上层协议".red()),
+        ParseResult::Unknown => println!("{}", "  [L3] 未知 EtherType".red()),
         _ => {}
     }
     println!("\n");
@@ -226,7 +237,7 @@ fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
     let eth = match EthernetFrame::parse(raw) {
         Ok(e) => e,
         Err(_) => {
-            println!("{ts}  ???  [L2 解析失败]  {len}B");
+            println!("{}", "{ts}  ???  [L2 解析失败]  {len}B".red());
             return;
         }
     };
@@ -235,7 +246,7 @@ fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
     let l3 = match dispatch_from_ethernet(&eth) {
         Ok(r) => r,
         Err(_) => {
-            println!("{ts}  ETH  [L3 分发失败]  {len}B");
+            println!("{}", "{ts}  ETH  [L3 分发失败]  {len}B".red());
             return;
         }
     };
@@ -247,7 +258,10 @@ fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
             let proto = protocol_name(ipv4.next_protocol);
             match dispatch_from_ipv4(ipv4) {
                 Ok(l4) => print_l4_one_liner(&ts, proto, &src, &dst, &l4, len),
-                Err(_) => println!("{ts}  {proto}  {src} → {dst}  {len}B"),
+                Err(_) => {
+                    let line = format!("{}  {}  {} → {}  {}B", ts, proto, src, dst, len);
+                    println!("{}", line.blue());
+                }
             }
         }
         ParseResult::IPv6(ref ipv6) => {
@@ -256,11 +270,20 @@ fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
             let proto = protocol_name(ipv6.next_header);
             match dispatch_from_ipv6(ipv6) {
                 Ok(l4) => print_l4_one_liner(&ts, proto, &src, &dst, &l4, len),
-                Err(_) => println!("{ts}  {proto}  {src} → {dst}  {len}B"),
+                Err(_) => {
+                    let line = format!("{ts}  {proto}  {src} → {dst}  {len}B");
+                    println!("{}", line.blue());
+                }
             }
         }
-        ParseResult::NotSupported => println!("{ts}  ETH  [L3 不支持]  {len}B"),
-        ParseResult::Unknown => println!("{ts}  ETH  type={:#06x}  {len}B", eth.ethernet_type),
+        ParseResult::NotSupported => {
+            let line = format!("{ts}  ETH  [L3 不支持]  {len}B");
+            println!("{}", line.red());
+        }
+        ParseResult::Unknown => {
+            let line = format!("{ts}  ETH  type={:#06x}  {len}B", eth.ethernet_type);
+            println!("{}", line.yellow());
+        }
         _ => {}
     }
 }
@@ -289,22 +312,28 @@ fn protocol_name(proto: u8) -> &'static str {
 fn print_l4_one_liner(ts: &str, proto: &str, src: &str, dst: &str, l4: &ParseResult<'_>, len: usize) {
     match l4 {
         ParseResult::TCP(tcp) => {
-            println!(
-                "{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {flags}  {len}B",
+            let line = format!("{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {flags}  {len}B",
                 sp = tcp.src_port,
                 dp = tcp.dst_port,
                 flags = format_tcp_flags(tcp.flags),
             );
+            println!("{}", line.green());
         }
         ParseResult::UDP(udp) => {
-            println!(
-                "{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {len}B",
+            let line = format!("{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {len}B",
                 sp = udp.src_port,
                 dp = udp.dst_port,
             );
+            println!("{}", line.green());
         }
-        ParseResult::NotSupported => println!("{ts}  {proto}  {src} → {dst}  [L4 不支持]  {len}B"),
-        _ => println!("{ts}  {proto}  {src} → {dst}  {len}B"),
+        ParseResult::NotSupported => {
+            let line = format!("{ts}  {proto}  {src} → {dst}  [L4 不支持]  {len}B");
+            println!("{}", line.red());
+        }
+        _ => {
+            let line = format!("{ts}  {proto}  {src} → {dst}  {len}B");
+            println!("{}", line.blue());
+        }
     }
 }
 
@@ -312,22 +341,21 @@ fn print_l4_one_liner(ts: &str, proto: &str, src: &str, dst: &str, l4: &ParseRes
 fn print_transport(l4: &ParseResult<'_>) {
     match l4 {
         ParseResult::TCP(tcp) => {
-            println!(
-                "  TCP  :{} → :{}  {}  seq={}",
+            let line = format!("  TCP  :{} → :{}  {}  seq={}",
                 tcp.src_port,
                 tcp.dst_port,
                 format_tcp_flags(tcp.flags),
                 tcp.seq,
             );
+            println!("{}", line.green());
         }
         ParseResult::UDP(udp) => {
-            println!(
-                "  UDP  :{} → :{}  len={}",
-                udp.src_port, udp.dst_port, udp.len,
-            );
+            let line = format!("  UDP  :{} → :{}  len={}",
+                udp.src_port, udp.dst_port, udp.len);
+            println!("{}", line.green());
         }
-        ParseResult::NotSupported => println!("  [L4] 不支持的传输层协议"),
-        ParseResult::Unknown => println!("  [L4] 未知协议号"),
+        ParseResult::NotSupported => println!("{}", "  [L4] 不支持的传输层协议".red()),
+        ParseResult::Unknown => println!("{}", "  [L4] 未知协议号".yellow()),
         _ => {}
     }
 }
