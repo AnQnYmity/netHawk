@@ -37,14 +37,14 @@ impl<'a> UDPSegment<'a> {
             anyhow::bail!("UDP 头太短：{} 字节。", raw.len());
         }
         let len = u16::from_be_bytes(raw[4..6].try_into()?);
-        if len < 8 {
+        if len < 8 || len as usize > raw.len() {
             anyhow::bail!("长度字段非法：{} 字节。", len);
         }
         Ok(Self {
             src_port: u16::from_be_bytes(raw[0..2].try_into()?),
             dst_port: u16::from_be_bytes(raw[2..4].try_into()?),
             len,
-            payload: &raw[8..],
+            payload: &raw[8..(len as usize)],
         })
     }
 }

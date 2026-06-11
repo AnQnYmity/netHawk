@@ -43,7 +43,7 @@ impl<'a> TCPSegment<'a> {
             anyhow::bail!("TCP 头太短：{} 字节。", raw.len());
         }
         let data_offset = ((raw[12] >> 4) as usize) * 4;
-        if data_offset < 20 {
+        if data_offset < 20 || data_offset > raw.len() {
             anyhow::bail!("数据头长度字段非法：{} 字节。", data_offset);
         }
         Ok(Self {

@@ -66,12 +66,15 @@ impl<'a> IPv4Packet<'a> {
         if header_len < 20 {
             anyhow::bail!("IHL 字段非法：{}", header_len);
         }
+        if header_len > raw.len() {
+            anyhow::bail!("声明长度 {} 字节，实际仅 {} 字节", header_len, raw.len());
+        }
         Ok(Self {
             ttl: raw[8],
             next_protocol: raw[9],
             src_ip: raw[12..16].try_into()?,
             dst_ip: raw[16..20].try_into()?,
-            payload: &raw[header_len..raw.len()],
+            payload: &raw[header_len..header_len],
         })
     }
 

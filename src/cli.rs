@@ -122,6 +122,18 @@ pub struct CaptureArgs {
     /// 数据包详细信息。
     #[arg(short = 'V', long = "verbose-output")]
     pub show_details: bool,
+
+    #[arg(short = 'H', long = "hex")]
+    pub hex: bool,
+
+    /// JSON 格式输出（需启用 `json` feature）。
+    #[cfg(feature = "json")]
+    #[arg(short = 'j', long = "json")]
+    pub json: bool,
+
+    #[cfg(not(feature = "json"))]
+    #[arg(skip)]
+    pub json: bool,
 }
 
 impl CaptureArgs {
@@ -159,6 +171,7 @@ impl CaptureArgs {
         tracing::info!("[capture] 快照长度: {}", self.snaplen);
         tracing::info!("[capture] 超时: {} ms", self.timeout);
         tracing::info!("[capture] 详细输出: {}", self.show_details);
+        tracing::info!("[capture] TCP dump: {}", self.hex);
 
         println!("  接口: {}", self.interface);
         if let Some(ref f) = self.filter {
@@ -204,6 +217,10 @@ pub struct AnalyzeArgs {
     /// JSON 格式输出（需启用 `json` feature）。
     #[cfg(feature = "json")]
     #[arg(short = 'j', long = "json")]
+    pub json_output: bool,
+
+    #[cfg(not(feature = "json"))]
+    #[arg(skip)]
     pub json_output: bool,
 }
 
@@ -435,6 +452,8 @@ mod tests {
             snaplen: 65535,
             timeout: 1000,
             show_details: true,
+            hex: false,
+            json: false,
         };
         assert!(args.validate().is_ok());
     }
@@ -449,6 +468,8 @@ mod tests {
             snaplen: 0,
             timeout: 1000,
             show_details: true,
+            hex: false,
+            json: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("快照长度"));
@@ -464,6 +485,8 @@ mod tests {
             snaplen: 1024,
             timeout: 0,
             show_details: true,
+            hex: false,
+            json: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("超时时间"));
@@ -479,6 +502,8 @@ mod tests {
             snaplen: 1024,
             timeout: 1000,
             show_details: true,
+            hex: false,
+            json: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("包数限制"));
@@ -494,6 +519,8 @@ mod tests {
             snaplen: 65535,
             timeout: 1000,
             show_details: true,
+            hex: false,
+            json: false,
         };
         assert!(args.validate().is_ok());
     }
@@ -508,6 +535,8 @@ mod tests {
             snaplen: 1024,
             timeout: 3_600_000,
             show_details: true,
+            hex: false,
+            json: false,
         };
         assert!(args.validate().is_ok());
     }
@@ -521,6 +550,7 @@ mod tests {
         let args = AnalyzeArgs {
             file: "test.pcap".into(),
             verbose_output: false,
+            json_output: false,
         };
         assert!(args.validate().is_ok());
     }
@@ -530,6 +560,7 @@ mod tests {
         let args = AnalyzeArgs {
             file: "test.pcapng".into(),
             verbose_output: true,
+            json_output: false,
         };
         assert!(args.validate().is_ok());
     }
@@ -539,6 +570,7 @@ mod tests {
         let args = AnalyzeArgs {
             file: "test.txt".into(),
             verbose_output: false,
+            json_output: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("不支持的文件格式"));
@@ -549,6 +581,7 @@ mod tests {
         let args = AnalyzeArgs {
             file: "".into(),
             verbose_output: false,
+            json_output: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("不能为空"));

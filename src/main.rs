@@ -193,6 +193,8 @@ mod tests {
             snaplen: 65535,
             timeout: 1000,
             show_details: false,
+            hex: false,
+            json: false,
         };
         // 参数合法，错误只能来自网卡权限/不存在，不是校验失败
         let result = args.run();
@@ -216,6 +218,8 @@ mod tests {
             snaplen: 0, // 非法值
             timeout: 1000,
             show_details: false,
+            hex: false,
+            json: false,
         };
         assert!(args.run().is_err());
     }
@@ -226,6 +230,7 @@ mod tests {
         let args = cli::AnalyzeArgs {
             file: "test.pcap".into(),
             verbose_output: false,
+            json_output: false,
         };
         assert!(args.run().is_ok());
     }
@@ -236,6 +241,7 @@ mod tests {
         let args = cli::AnalyzeArgs {
             file: "test.txt".into(), // 不支持的文件格式
             verbose_output: false,
+            json_output: false,
         };
         assert!(args.run().is_err());
     }

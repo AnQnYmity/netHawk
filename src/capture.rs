@@ -32,6 +32,12 @@ pub struct CaptureEngine {
 
     /// 详细输出模式。
     verbose: bool,
+
+    /// 十六进制生数据。
+    dump: bool,
+
+    /// JSON 输出模式。
+    json: bool,
 }
 
 impl CaptureEngine {
@@ -59,6 +65,8 @@ impl CaptureEngine {
             limit,
             output: args.output.clone(),
             verbose: args.show_details,
+            dump: args.hex,
+            json: args.json,
         })
     }
 
@@ -87,11 +95,21 @@ impl CaptureEngine {
             let now = Instant::now();
             match self.cap.next_packet() {
                 Ok(packet) => {
+                    #[cfg(feature = "json")]
+                    if self.json {
+                        print_json(packet.data, packet.header.ts.tv_sec as i64, packet.header.ts.tv_usec as i64);
+                    } else
                     if self.verbose {
                         print_packet(packet.data);
                     } else {
                         print_one_liner(packet.data, packet.header.ts.tv_sec as i64, packet.header.ts.tv_usec as i64);
                     }
+
+                    // 如果需要将十六进制数据 dump 出来：
+                    if self.dump {
+                        hexdump(packet.data);
+                    }
+
                     // .as_mut() 拿到 Option 中的可变引用，不将其 move 出来。
                     if let Some(w) = writer.as_mut() {
                         w.write(&packet);
@@ -114,6 +132,29 @@ impl CaptureEngine {
         }
         println!("共抓取了 {} 个数据包，{} 字节。", captured, byte);
         Ok(())
+    }
+}
+
+/// 16 进制输出
+fn hexdump(data: &[u8]) {
+     for (i, chunk) in data.chunks(16).enumerate() {
+        print!("  {:#06x}  ", i * 16);
+        for (j, &byte) in chunk.iter().enumerate() {
+            if j == 8 { print!(" "); }
+            print!("{:02x} ", byte);
+        }
+        // 补齐不足 16 字节的行
+        let pad = (16 - chunk.len()) * 3 + if chunk.len() <= 8 { 1 } else { 0 };
+        print!("{:pad$}", "");
+        print!(" ");
+        for &byte in chunk {
+            if byte.is_ascii_graphic() || byte == b' ' {
+                print!("{}", byte as char);
+            } else {
+                print!(".");
+            }
+        }
+        println!();
     }
 }
 
@@ -288,6 +329,98 @@ fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
     }
 }
 
+/// JSON 格式输出（需启用 `json` feature）。
+///
+/// 输出一条 JSON 行，包含时间戳、各层协议字段。
+#[cfg(feature = "json")]
+fn print_json(raw: &[u8], tv_sec: i64, tv_usec: i64) {
+    use serde_json::json;
+
+    let ts = format_timestamp(tv_sec, tv_usec);
+    let mut obj = json!({
+        "ts": ts,
+        "len": raw.len(),
+    });
+
+    let eth = match EthernetFrame::parse(raw) {
+        Ok(e) => e,
+        Err(_) => {
+            obj["error"] = json!("L2 parse failed");
+            println!("{}", serde_json::to_string(&obj).unwrap());
+            return;
+        }
+    };
+
+    obj["eth"] = json!({
+        "src_mac": EthernetFrame::format_mac(&eth.src_mac),
+        "dst_mac": EthernetFrame::format_mac(&eth.dst_mac),
+        "ethertype": format!("{:#06x}", eth.ethernet_type),
+    });
+
+    let l3 = match dispatch_from_ethernet(&eth) {
+        Ok(r) => r,
+        Err(e) => {
+            obj["error"] = json!(format!("L3 dispatch failed: {e}"));
+            println!("{}", serde_json::to_string(&obj).unwrap());
+            return;
+        }
+    };
+
+    match l3 {
+        ParseResult::IPv4(ref ip) => {
+            obj["ip"] = json!({
+                "version": 4,
+                "src": IPv4Packet::format_ip(&ip.src_ip),
+                "dst": IPv4Packet::format_ip(&ip.dst_ip),
+                "ttl": ip.ttl,
+                "proto": ip.next_protocol,
+            });
+            if let Ok(l4) = dispatch_from_ipv4(ip) {
+                add_l4_json(&mut obj, &l4);
+            }
+        }
+        ParseResult::IPv6(ref ip) => {
+            obj["ipv6"] = json!({
+                "version": 6,
+                "src": IPv6Packet::format_ip(&ip.src_ip),
+                "dst": IPv6Packet::format_ip(&ip.dst_ip),
+                "hop_limit": ip.hop_limit,
+                "next_header": ip.next_header,
+            });
+            if let Ok(l4) = dispatch_from_ipv6(ip) {
+                add_l4_json(&mut obj, &l4);
+            }
+        }
+        _ => {}
+    }
+
+    println!("{}", serde_json::to_string(&obj).unwrap());
+}
+
+/// 向 JSON 对象中添加传输层字段。
+#[cfg(feature = "json")]
+fn add_l4_json(obj: &mut serde_json::Value, l4: &ParseResult<'_>) {
+    use serde_json::json;
+    match l4 {
+        ParseResult::TCP(tcp) => {
+            obj["tcp"] = json!({
+                "src_port": tcp.src_port,
+                "dst_port": tcp.dst_port,
+                "flags": format_tcp_flags(tcp.flags),
+                "seq": tcp.seq,
+            });
+        }
+        ParseResult::UDP(udp) => {
+            obj["udp"] = json!({
+                "src_port": udp.src_port,
+                "dst_port": udp.dst_port,
+                "len": udp.len,
+            });
+        }
+        _ => {}
+    }
+}
+
 /// 格式化 Unix 时间戳为 `HH:MM:SS.uuuuuu`。
 fn format_timestamp(tv_sec: i64, tv_usec: i64) -> String {
     let secs_since_midnight = tv_sec.rem_euclid(86400);
@@ -392,6 +525,8 @@ mod tests {
             snaplen: 65535,
             timeout: 1000,
             show_details: true,
+            hex: false,
+            json: false,
         };
         assert!(CaptureEngine::new(&args).is_err());
     }

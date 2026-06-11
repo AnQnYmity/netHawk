@@ -1,6 +1,6 @@
 [package]
 name = "nethawk"
-version = "0.2.2"
+version = "0.3.0"
 edition = "2024"
 description = "A native Rust network packet capture and multi-layer protocol analyzer for Linux"
 authors = ["anqmaly"]
