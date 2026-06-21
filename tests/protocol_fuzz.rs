@@ -3,13 +3,13 @@
 //! 使用 proptest 对每个协议解析器喂入随机字节，验证不会 panic。
 //! 原则：解析器可以返回 Err，但绝不能 panic。
 
-use proptest::prelude::*;
+use nethawk::protocol::dns::DNSRequest;
 use nethawk::protocol::ethernet::EthernetFrame;
+use nethawk::protocol::http::HTTPMessage;
 use nethawk::protocol::ip::{IPv4Packet, IPv6Packet};
 use nethawk::protocol::tcp::TCPSegment;
 use nethawk::protocol::udp::UDPSegment;
-use nethawk::protocol::dns::DNSRequest;
-use nethawk::protocol::http::HTTPMessage;
+use proptest::prelude::*;
 
 proptest! {
     // ======================================================================

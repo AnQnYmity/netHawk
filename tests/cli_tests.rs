@@ -65,7 +65,10 @@ fn verbose_flag_accepted() {
 #[test]
 fn capture_help() {
     let out = assert_ok(bin().arg("capture").arg("--help"));
-    assert!(out.contains("interface"), "capture --help 应包含 --interface");
+    assert!(
+        out.contains("interface"),
+        "capture --help 应包含 --interface"
+    );
     assert!(out.contains("count"), "capture --help 应包含 --count");
 }
 
@@ -112,7 +115,10 @@ fn analyze_invalid_extension() {
 #[test]
 fn analyze_valid_pcapng() {
     let out = assert_ok(bin().arg("analyze").arg("test.pcapng"));
-    assert!(out.contains("离线分析") || out.contains("analyze"), "应进入 analyze 模式");
+    assert!(
+        out.contains("离线分析") || out.contains("analyze"),
+        "应进入 analyze 模式"
+    );
 }
 
 #[test]
@@ -170,6 +176,15 @@ fn stats_invalid_interval() {
 
 #[test]
 fn stats_custom_interval() {
-    let out = assert_ok(bin().arg("stats").arg("-i").arg("eth0").arg("-n").arg("20").arg("-I").arg("5"));
+    let out = assert_ok(
+        bin()
+            .arg("stats")
+            .arg("-i")
+            .arg("eth0")
+            .arg("-n")
+            .arg("20")
+            .arg("-I")
+            .arg("5"),
+    );
     assert!(out.contains("20") || out.contains("5"), "应接受自定义参数");
 }
