@@ -27,3 +27,5 @@ target
 # Added by cargo
 
 /target
+output.pcap
+build.log
