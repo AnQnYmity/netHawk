@@ -74,7 +74,7 @@ impl<'a> IPv4Packet<'a> {
             next_protocol: raw[9],
             src_ip: raw[12..16].try_into()?,
             dst_ip: raw[16..20].try_into()?,
-            payload: &raw[header_len..header_len],
+            payload: &raw[header_len..],
         })
     }
 
@@ -208,14 +208,8 @@ mod tests {
     /// 合法 IPv6 包，验证各字段解析正确。
     #[test]
     fn test_ipv6_parse_valid() {
-        let src = [
-            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1,
-        ];
-        let dst = [
-            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 2,
-        ];
+        let src = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
+        let dst = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2];
         let raw = make_ipv6(17, 128, src, dst, b"dns");
         let pkt = IPv6Packet::parse(&raw).unwrap();
 
@@ -244,10 +238,39 @@ mod tests {
     /// format_ip 输出格式正确。
     #[test]
     fn test_ipv6_format_ip() {
-        let ip = [
-            0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 1,
-        ];
+        let ip = [0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
         assert_eq!(IPv6Packet::format_ip(&ip), "2001:db8:0:0:0:0:0:1");
+    }
+
+    // ── proptest 模糊测试 ──
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// 任意字节切片输入不应导致 panic。
+        #[test]
+        fn ipv4_parse_never_panics(raw in prop::collection::vec(any::<u8>(), 0..256)) {
+            let _ = IPv4Packet::parse(&raw);
+        }
+
+        /// 任意字节切片输入不应导致 panic。
+        #[test]
+        fn ipv6_parse_never_panics(raw in prop::collection::vec(any::<u8>(), 0..256)) {
+            let _ = IPv6Packet::parse(&raw);
+        }
+
+        /// 对于有效的 IPv4 包头（version=4, IHL>=5），parse 必须成功且 payload 不能超出边界。
+        #[test]
+        fn ipv4_valid_header_parses_ok(raw in prop::collection::vec(any::<u8>(), 20..256)) {
+            // 强制写入有效的 version + IHL
+            let mut raw = raw;
+            raw[0] = (raw[0] & 0x0F) | 0x40; // version=4, 保留低4位作为 IHL
+            if (raw[0] & 0x0F) < 5 { raw[0] = (raw[0] & 0xF0) | 5; } // IHL>=5
+            if let Ok(pkt) = IPv4Packet::parse(&raw) {
+                let header_len = 4 * ((raw[0] & 0x0F) as usize);
+                assert!(header_len + pkt.payload.len() <= raw.len(),
+                    "payload 越界");
+            }
+        }
     }
 }

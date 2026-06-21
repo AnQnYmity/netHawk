@@ -9,13 +9,17 @@
 //! engine.run()?;
 //! ```
 
-use crate::protocol::*;
 use crate::cli::CaptureArgs;
+#[cfg(feature = "json")]
+use crate::printer::print_json;
+#[allow(unused_imports)]
+use crate::printer::{hexdump, print_one_liner, print_packet};
+
 use pcap::Capture;
+use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
-use colored::Colorize;
 
 /// 网络数据包捕获引擎
 ///
@@ -37,7 +41,11 @@ pub struct CaptureEngine {
     dump: bool,
 
     /// JSON 输出模式。
+    #[cfg_attr(not(feature = "json"), allow(dead_code))]
     json: bool,
+
+    /// Linux cooked capture (SLL) 模式下需跳过的头部字节数（0 表示以太网帧）。
+    strip_header: usize,
 }
 
 impl CaptureEngine {
@@ -58,6 +66,17 @@ impl CaptureEngine {
         }
         // 非阻塞模式：setnonblock 消耗 cap 并返回新的 cap，需在局部变量阶段调用
         let cap = cap.setnonblock()?;
+
+        // 检测链路层类型：Linux 上 pcap 默认使用 cooked capture (SLL)，需剥离 16 字节头
+        let datalink = cap.get_datalink();
+        let link_name = datalink.get_name().unwrap_or_else(|_| "???".to_string());
+        let strip_header = if link_name.contains("SLL") || link_name.contains("LINUX_SLL") {
+            16
+        } else {
+            0 // 以太网帧 (EN10MB) 或其他，无需剥离
+        };
+        eprintln!("  链路层: {link_name} (剥离 {strip_header} 字节)");
+
         // 启用上限抓包计数
         let limit = args.count.unwrap_or(u64::MAX);
         Ok(Self {
@@ -67,9 +86,15 @@ impl CaptureEngine {
             verbose: args.show_details,
             dump: args.hex,
             json: args.json,
+            strip_header,
         })
     }
 
+    /// 运行实时抓包循环。
+    ///
+    /// 非阻塞模式 + SIGINT 信号处理，逐包解析并输出（支持详细/hex/JSON/
+    /// pcap 写入），达到数量上限或 Ctrl+C 后退出。
+    #[allow(clippy::unnecessary_cast)] // tv_sec/tv_usec 类型因平台而异
     pub fn run(&mut self) -> anyhow::Result<()> {
         // 计数当前已抓获包数
         let mut captured = 0;
@@ -95,14 +120,47 @@ impl CaptureEngine {
             let now = Instant::now();
             match self.cap.next_packet() {
                 Ok(packet) => {
+                    // 剥离非以太网链路层头（如 Linux SLL 的 16 字节）
+                    let raw = if self.strip_header > 0 && packet.data.len() > self.strip_header {
+                        &packet.data[self.strip_header..]
+                    } else {
+                        packet.data
+                    };
+
+                    // JSON 输出（需 json feature + --json 标志）
                     #[cfg(feature = "json")]
                     if self.json {
-                        print_json(packet.data, packet.header.ts.tv_sec as i64, packet.header.ts.tv_usec as i64);
-                    } else
+                        print_json(
+                            raw,
+                            packet.header.ts.tv_sec as i64,
+                            packet.header.ts.tv_usec as i64,
+                        );
+                    }
+
+                    // 文本输出（json 未请求时的 fallback）
+                    #[cfg(feature = "json")]
+                    if !self.json {
+                        if self.verbose {
+                            print_packet(raw);
+                        } else {
+                            print_one_liner(
+                                raw,
+                                packet.header.ts.tv_sec as i64,
+                                packet.header.ts.tv_usec as i64,
+                            );
+                        }
+                    }
+
+                    // 文本输出（json feature 不可用）
+                    #[cfg(not(feature = "json"))]
                     if self.verbose {
-                        print_packet(packet.data);
+                        print_packet(raw);
                     } else {
-                        print_one_liner(packet.data, packet.header.ts.tv_sec as i64, packet.header.ts.tv_usec as i64);
+                        print_one_liner(
+                            raw,
+                            packet.header.ts.tv_sec as i64,
+                            packet.header.ts.tv_usec as i64,
+                        );
                     }
 
                     // 如果需要将十六进制数据 dump 出来：
@@ -122,6 +180,7 @@ impl CaptureEngine {
                     }
                 }
                 Err(pcap::Error::TimeoutExpired) | Err(pcap::Error::NoMorePackets) => {
+                    std::io::stdout().flush().ok();
                     // 非阻塞模式下无包可读，短暂休眠避免 CPU 空转，然后回头检查 running
                     std::thread::sleep(std::time::Duration::from_millis(50));
                     continue;
@@ -132,380 +191,6 @@ impl CaptureEngine {
         }
         println!("共抓取了 {} 个数据包，{} 字节。", captured, byte);
         Ok(())
-    }
-}
-
-/// 16 进制输出
-fn hexdump(data: &[u8]) {
-     for (i, chunk) in data.chunks(16).enumerate() {
-        print!("  {:#06x}  ", i * 16);
-        for (j, &byte) in chunk.iter().enumerate() {
-            if j == 8 { print!(" "); }
-            print!("{:02x} ", byte);
-        }
-        // 补齐不足 16 字节的行
-        let pad = (16 - chunk.len()) * 3 + if chunk.len() <= 8 { 1 } else { 0 };
-        print!("{:pad$}", "");
-        print!(" ");
-        for &byte in chunk {
-            if byte.is_ascii_graphic() || byte == b' ' {
-                print!("{}", byte as char);
-            } else {
-                print!(".");
-            }
-        }
-        println!();
-    }
-}
-
-// ============================================================================
-// 协议分发函数 — 按上层协议字段路由到下一层解析器
-// ============================================================================
-
-/// 从以太网帧分发到网络层（IPv4 / IPv6 / ARP）。
-fn dispatch_from_ethernet<'a>(eth: &EthernetFrame<'a>) -> anyhow::Result<ParseResult<'a>> {
-    match eth.ethernet_type {
-        0x0800 => Ok(ParseResult::IPv4(IPv4Packet::parse(eth.payload)?)),
-        0x86DD => Ok(ParseResult::IPv6(IPv6Packet::parse(eth.payload)?)),
-        0x0806 => Ok(ParseResult::NotSupported), // ARP
-        _ => Ok(ParseResult::Unknown),
-    }
-}
-
-/// 从 IPv4 分发到传输层（TCP / UDP / ICMP）。
-fn dispatch_from_ipv4<'a>(ipv4: &IPv4Packet<'a>) -> anyhow::Result<ParseResult<'a>> {
-    match ipv4.next_protocol {
-        6 => Ok(ParseResult::TCP(TCPSegment::parse(ipv4.payload)?)),
-        17 => Ok(ParseResult::UDP(UDPSegment::parse(ipv4.payload)?)),
-        1 => Ok(ParseResult::NotSupported), // ICMP
-        _ => Ok(ParseResult::Unknown),
-    }
-}
-
-/// 从 IPv6 分发到传输层（TCP / UDP / ICMPv6）。
-fn dispatch_from_ipv6<'a>(ipv6: &IPv6Packet<'a>) -> anyhow::Result<ParseResult<'a>> {
-    match ipv6.next_header {
-        6 => Ok(ParseResult::TCP(TCPSegment::parse(ipv6.payload)?)),
-        17 => Ok(ParseResult::UDP(UDPSegment::parse(ipv6.payload)?)),
-        58 => Ok(ParseResult::NotSupported), // ICMPv6
-        _ => Ok(ParseResult::Unknown),
-    }
-}
-
-// ============================================================================
-// 数据包打印 — 顺序解析 → 逐层打印
-// ============================================================================
-
-/// 从原始字节顺序解析并打印各层协议信息。
-///
-/// 解析链：Ethernet → IP → TCP/UDP。每层解析后立即打印摘要，
-/// 再分发到下一层。解析失败时不 panic，打印错误信息并继续。
-fn print_packet(raw: &[u8]) {
-    // ── L2: 以太网 ──
-    let eth = match EthernetFrame::parse(raw) {
-        Ok(e) => e,
-        Err(e) => {
-            let line = format!("  [L2 解析失败] {}", e);
-            eprintln!("{}", line.red());
-            return;
-        }
-    };
-    let ethline = format!("  ETH  {} → {}  type={:#06x}",
-        EthernetFrame::format_mac(&eth.src_mac),
-        EthernetFrame::format_mac(&eth.dst_mac),
-        eth.ethernet_type);
-    println!("{}", ethline.cyan());
-
-    // ── L2 → L3 ──
-    let l3 = match dispatch_from_ethernet(&eth) {
-        Ok(r) => r,
-        Err(e) => {
-            let line = format!("  [L3 分发失败] {}", e); 
-            eprintln!("{}", line.red());
-            return;
-        }
-    };
-
-    // ── L3: 网络层 ──
-    match l3 {
-        ParseResult::IPv4(ref ipv4) => {
-            let ipline = format!("  IPv4 {} → {}  ttl={}  proto={}",
-                IPv4Packet::format_ip(&ipv4.src_ip),
-                IPv4Packet::format_ip(&ipv4.dst_ip),
-                ipv4.ttl,
-                ipv4.next_protocol);
-            println!("{}", ipline.blue());
-            match dispatch_from_ipv4(ipv4) {
-                Ok(l4) => print_transport(&l4),
-                Err(e) => {
-                    let line = format!("  [L4 分发失败] {}", e);
-                    eprintln!("{}", line.red());
-                    return;
-                }
-            }
-        }
-        ParseResult::IPv6(ref ipv6) => {
-            let ipline = format!("  IPv6 {} → {}  hop={}  nh={}",
-                IPv6Packet::format_ip(&ipv6.src_ip),
-                IPv6Packet::format_ip(&ipv6.dst_ip),
-                ipv6.hop_limit,
-                ipv6.next_header);
-            println!("{}", ipline.blue());
-            match dispatch_from_ipv6(ipv6) {
-                Ok(l4) => print_transport(&l4),
-                Err(e) => {
-                    let line = format!("  [L4 分发失败] {}", e);
-                    eprintln!("{}", line.red());
-                    return;
-                }
-            }
-        }
-        ParseResult::NotSupported => println!("{}", "  [L3] 不支持的上层协议".red()),
-        ParseResult::Unknown => println!("{}", "  [L3] 未知 EtherType".red()),
-        _ => {}
-    }
-    println!("\n");
-}
-
-/// 一行摘要输出（默认模式）。
-///
-/// 格式：`HH:MM:SS.uuuuuu  PROTO  src_ip:port → dst_ip:port  [FLAGS]  LENB`
-fn print_one_liner(raw: &[u8], tv_sec: i64, tv_usec: i64) {
-    let ts = format_timestamp(tv_sec, tv_usec);
-    let len = raw.len();
-
-    // L2
-    let eth = match EthernetFrame::parse(raw) {
-        Ok(e) => e,
-        Err(_) => {
-            println!("{}", "{ts}  ???  [L2 解析失败]  {len}B".red());
-            return;
-        }
-    };
-
-    // L2 → L3
-    let l3 = match dispatch_from_ethernet(&eth) {
-        Ok(r) => r,
-        Err(_) => {
-            println!("{}", "{ts}  ETH  [L3 分发失败]  {len}B".red());
-            return;
-        }
-    };
-
-    match l3 {
-        ParseResult::IPv4(ref ipv4) => {
-            let src = IPv4Packet::format_ip(&ipv4.src_ip);
-            let dst = IPv4Packet::format_ip(&ipv4.dst_ip);
-            let proto = protocol_name(ipv4.next_protocol);
-            match dispatch_from_ipv4(ipv4) {
-                Ok(l4) => print_l4_one_liner(&ts, proto, &src, &dst, &l4, len),
-                Err(_) => {
-                    let line = format!("{}  {}  {} → {}  {}B", ts, proto, src, dst, len);
-                    println!("{}", line.blue());
-                }
-            }
-        }
-        ParseResult::IPv6(ref ipv6) => {
-            let src = IPv6Packet::format_ip(&ipv6.src_ip);
-            let dst = IPv6Packet::format_ip(&ipv6.dst_ip);
-            let proto = protocol_name(ipv6.next_header);
-            match dispatch_from_ipv6(ipv6) {
-                Ok(l4) => print_l4_one_liner(&ts, proto, &src, &dst, &l4, len),
-                Err(_) => {
-                    let line = format!("{ts}  {proto}  {src} → {dst}  {len}B");
-                    println!("{}", line.blue());
-                }
-            }
-        }
-        ParseResult::NotSupported => {
-            let line = format!("{ts}  ETH  [L3 不支持]  {len}B");
-            println!("{}", line.red());
-        }
-        ParseResult::Unknown => {
-            let line = format!("{ts}  ETH  type={:#06x}  {len}B", eth.ethernet_type);
-            println!("{}", line.yellow());
-        }
-        _ => {}
-    }
-}
-
-/// JSON 格式输出（需启用 `json` feature）。
-///
-/// 输出一条 JSON 行，包含时间戳、各层协议字段。
-#[cfg(feature = "json")]
-fn print_json(raw: &[u8], tv_sec: i64, tv_usec: i64) {
-    use serde_json::json;
-
-    let ts = format_timestamp(tv_sec, tv_usec);
-    let mut obj = json!({
-        "ts": ts,
-        "len": raw.len(),
-    });
-
-    let eth = match EthernetFrame::parse(raw) {
-        Ok(e) => e,
-        Err(_) => {
-            obj["error"] = json!("L2 parse failed");
-            println!("{}", serde_json::to_string(&obj).unwrap());
-            return;
-        }
-    };
-
-    obj["eth"] = json!({
-        "src_mac": EthernetFrame::format_mac(&eth.src_mac),
-        "dst_mac": EthernetFrame::format_mac(&eth.dst_mac),
-        "ethertype": format!("{:#06x}", eth.ethernet_type),
-    });
-
-    let l3 = match dispatch_from_ethernet(&eth) {
-        Ok(r) => r,
-        Err(e) => {
-            obj["error"] = json!(format!("L3 dispatch failed: {e}"));
-            println!("{}", serde_json::to_string(&obj).unwrap());
-            return;
-        }
-    };
-
-    match l3 {
-        ParseResult::IPv4(ref ip) => {
-            obj["ip"] = json!({
-                "version": 4,
-                "src": IPv4Packet::format_ip(&ip.src_ip),
-                "dst": IPv4Packet::format_ip(&ip.dst_ip),
-                "ttl": ip.ttl,
-                "proto": ip.next_protocol,
-            });
-            if let Ok(l4) = dispatch_from_ipv4(ip) {
-                add_l4_json(&mut obj, &l4);
-            }
-        }
-        ParseResult::IPv6(ref ip) => {
-            obj["ipv6"] = json!({
-                "version": 6,
-                "src": IPv6Packet::format_ip(&ip.src_ip),
-                "dst": IPv6Packet::format_ip(&ip.dst_ip),
-                "hop_limit": ip.hop_limit,
-                "next_header": ip.next_header,
-            });
-            if let Ok(l4) = dispatch_from_ipv6(ip) {
-                add_l4_json(&mut obj, &l4);
-            }
-        }
-        _ => {}
-    }
-
-    println!("{}", serde_json::to_string(&obj).unwrap());
-}
-
-/// 向 JSON 对象中添加传输层字段。
-#[cfg(feature = "json")]
-fn add_l4_json(obj: &mut serde_json::Value, l4: &ParseResult<'_>) {
-    use serde_json::json;
-    match l4 {
-        ParseResult::TCP(tcp) => {
-            obj["tcp"] = json!({
-                "src_port": tcp.src_port,
-                "dst_port": tcp.dst_port,
-                "flags": format_tcp_flags(tcp.flags),
-                "seq": tcp.seq,
-            });
-        }
-        ParseResult::UDP(udp) => {
-            obj["udp"] = json!({
-                "src_port": udp.src_port,
-                "dst_port": udp.dst_port,
-                "len": udp.len,
-            });
-        }
-        _ => {}
-    }
-}
-
-/// 格式化 Unix 时间戳为 `HH:MM:SS.uuuuuu`。
-fn format_timestamp(tv_sec: i64, tv_usec: i64) -> String {
-    let secs_since_midnight = tv_sec.rem_euclid(86400);
-    let h = secs_since_midnight / 3600;
-    let m = (secs_since_midnight % 3600) / 60;
-    let s = secs_since_midnight % 60;
-    format!("{h:02}:{m:02}:{s:02}.{tv_usec:06}")
-}
-
-/// 协议号 → 缩写。
-fn protocol_name(proto: u8) -> &'static str {
-    match proto {
-        1 => "ICMP",
-        6 => "TCP",
-        17 => "UDP",
-        58 => "ICMPv6",
-        _ => "???",
-    }
-}
-
-/// 打印传输层一行摘要。
-fn print_l4_one_liner(ts: &str, proto: &str, src: &str, dst: &str, l4: &ParseResult<'_>, len: usize) {
-    match l4 {
-        ParseResult::TCP(tcp) => {
-            let line = format!("{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {flags}  {len}B",
-                sp = tcp.src_port,
-                dp = tcp.dst_port,
-                flags = format_tcp_flags(tcp.flags),
-            );
-            println!("{}", line.green());
-        }
-        ParseResult::UDP(udp) => {
-            let line = format!("{ts}  {proto}  {src}:{sp} → {dst}:{dp}  {len}B",
-                sp = udp.src_port,
-                dp = udp.dst_port,
-            );
-            println!("{}", line.green());
-        }
-        ParseResult::NotSupported => {
-            let line = format!("{ts}  {proto}  {src} → {dst}  [L4 不支持]  {len}B");
-            println!("{}", line.red());
-        }
-        _ => {
-            let line = format!("{ts}  {proto}  {src} → {dst}  {len}B");
-            println!("{}", line.blue());
-        }
-    }
-}
-
-/// 打印传输层（TCP / UDP）摘要。
-fn print_transport(l4: &ParseResult<'_>) {
-    match l4 {
-        ParseResult::TCP(tcp) => {
-            let line = format!("  TCP  :{} → :{}  {}  seq={}",
-                tcp.src_port,
-                tcp.dst_port,
-                format_tcp_flags(tcp.flags),
-                tcp.seq,
-            );
-            println!("{}", line.green());
-        }
-        ParseResult::UDP(udp) => {
-            let line = format!("  UDP  :{} → :{}  len={}",
-                udp.src_port, udp.dst_port, udp.len);
-            println!("{}", line.green());
-        }
-        ParseResult::NotSupported => println!("{}", "  [L4] 不支持的传输层协议".red()),
-        ParseResult::Unknown => println!("{}", "  [L4] 未知协议号".yellow()),
-        _ => {}
-    }
-}
-
-/// 格式化 TCP 标志位为简写字符串（如 `[SYN]`、`[SYN,ACK]`）。
-fn format_tcp_flags(flags: u8) -> String {
-    let mut parts = Vec::new();
-    if flags & 0x01 != 0 { parts.push("FIN"); }
-    if flags & 0x02 != 0 { parts.push("SYN"); }
-    if flags & 0x04 != 0 { parts.push("RST"); }
-    if flags & 0x08 != 0 { parts.push("PSH"); }
-    if flags & 0x10 != 0 { parts.push("ACK"); }
-    if flags & 0x20 != 0 { parts.push("URG"); }
-    if parts.is_empty() {
-        "[NONE]".to_string()
-    } else {
-        format!("[{}]", parts.join(","))
     }
 }
 

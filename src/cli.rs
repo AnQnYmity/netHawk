@@ -8,6 +8,7 @@
 //!
 //! 每个子命令均提供参数校验方法，确保用户输入合法后再执行。
 
+use crate::analyse::AnalyzeEngine;
 use crate::capture::CaptureEngine;
 use clap::{Parser, Subcommand};
 
@@ -222,6 +223,26 @@ pub struct AnalyzeArgs {
     #[cfg(not(feature = "json"))]
     #[arg(skip)]
     pub json_output: bool,
+
+    /// 启用十六进制输出。
+    #[arg(short = 'H', long = "hex")]
+    pub hex: bool,
+
+    /// 跟踪 TCP 流并匹配 HTTP 请求/响应对。
+    #[arg(short = 'F', long = "follow-http")]
+    pub follow_http: bool,
+
+    /// 解析 TLS ClientHello，提取 SNI、密码套件。
+    #[arg(long = "tls")]
+    pub tls: bool,
+
+    /// 解析 DHCP 报文。
+    #[arg(long = "dhcp")]
+    pub dhcp: bool,
+
+    /// 按 TCP 流导出 HTTP 请求/响应体。
+    #[arg(long = "export")]
+    pub export: bool,
 }
 
 impl AnalyzeArgs {
@@ -252,12 +273,15 @@ impl AnalyzeArgs {
 
         tracing::info!("[analyze] 文件: {}", self.file);
         tracing::info!("[analyze] 详细输出: {}", self.verbose_output);
+        tracing::info!("[analyze] 十六进制输出: {}", self.hex);
 
-        println!("离线分析模式（尚未实现）");
         println!("  文件: {}", self.file);
         if self.verbose_output {
             println!("  详细输出: 是");
         }
+
+        AnalyzeEngine::new(self)?.run()?;
+
         Ok(())
     }
 }
@@ -309,9 +333,9 @@ impl StatsArgs {
         Ok(())
     }
 
-    /// 运行流量统计（阶段 0：打印参数并校验）。
+    /// 运行流量统计。
     ///
-    /// 先调用 `validate()` 校验参数，再打印确认信息。
+    /// 先调用 `validate()` 校验参数，再委托给 [`StatEngine`] 执行统计。
     pub fn run(&self) -> anyhow::Result<()> {
         self.validate().map_err(anyhow::Error::msg)?;
 
@@ -320,14 +344,7 @@ impl StatsArgs {
         tracing::info!("[stats] Top N: {}", self.top_n);
         tracing::info!("[stats] 间隔: {} s", self.interval);
 
-        println!("流量统计模式（尚未实现）");
-        println!("  接口: {:?}", self.interface);
-        if let Some(ref f) = self.file {
-            println!("  文件: {}", f);
-        }
-        println!("  Top N: {}", self.top_n);
-        println!("  间隔: {} s", self.interval);
-        Ok(())
+        crate::status::StatEngine::new(self)?.run()
     }
 }
 
@@ -344,33 +361,39 @@ mod tests {
     // 公共校验工具测试
     // -----------------------------------------------------------------------
 
+    /// validate_range 对合法值返回 Ok。
     #[test]
     fn test_validate_range_ok() {
         assert!(validate_range(5, 1, 10, "测试值").is_ok());
     }
 
+    /// validate_range 低于下限返回 Err。
     #[test]
     fn test_validate_range_below_min() {
         let err = validate_range(0, 1, 10, "测试值").unwrap_err();
         assert!(err.contains("不在合法范围"));
     }
 
+    /// validate_range 高于上限返回 Err。
     #[test]
     fn test_validate_range_above_max() {
         let err = validate_range(11, 1, 10, "测试值").unwrap_err();
         assert!(err.contains("不在合法范围"));
     }
 
+    /// validate_range 下限边界值通过。
     #[test]
     fn test_validate_range_boundary_min() {
         assert!(validate_range(1, 1, 10, "测试值").is_ok());
     }
 
+    /// validate_range 上限边界值通过。
     #[test]
     fn test_validate_range_boundary_max() {
         assert!(validate_range(10, 1, 10, "测试值").is_ok());
     }
 
+    /// require_one_of 两者皆空返回 Err。
     #[test]
     fn test_require_one_of_both_none() {
         let a: Option<&str> = None;
@@ -379,6 +402,7 @@ mod tests {
         assert!(err.contains("--interface") && err.contains("--file"));
     }
 
+    /// require_one_of 仅 a 有值返回 Ok。
     #[test]
     fn test_require_one_of_a_some() {
         let a = Some("eth0");
@@ -386,6 +410,7 @@ mod tests {
         assert!(require_one_of(&a, &b, ("--interface", "--file")).is_ok());
     }
 
+    /// require_one_of 仅 b 有值返回 Ok。
     #[test]
     fn test_require_one_of_b_some() {
         let a: Option<&str> = None;
@@ -393,6 +418,7 @@ mod tests {
         assert!(require_one_of(&a, &b, ("--interface", "--file")).is_ok());
     }
 
+    /// require_one_of 两者皆有值返回 Ok。
     #[test]
     fn test_require_one_of_both_some() {
         let a = Some("eth0");
@@ -404,18 +430,21 @@ mod tests {
     // CLI help 测试
     // -----------------------------------------------------------------------
 
+    /// nethawk capture --help 输出帮助信息。
     #[test]
     fn test_capture_help() {
         let result = Cli::try_parse_from(["nethawk", "capture", "--help"]);
         assert!(result.is_ok() || result.unwrap_err().to_string().contains("实时数据包捕获"));
     }
 
+    /// nethawk analyze --help 输出帮助信息。
     #[test]
     fn test_analyze_help() {
         let result = Cli::try_parse_from(["nethawk", "analyze", "--help"]);
         assert!(result.is_ok() || result.unwrap_err().to_string().contains("离线分析"));
     }
 
+    /// nethawk stats --help 输出帮助信息。
     #[test]
     fn test_stats_help() {
         let result = Cli::try_parse_from(["nethawk", "stats", "--help"]);
@@ -426,6 +455,7 @@ mod tests {
     // capture 子命令测试
     // -----------------------------------------------------------------------
 
+    /// capture 子命令默认值正确。
     #[test]
     fn test_capture_defaults() {
         let cli = Cli::try_parse_from(["nethawk", "capture"]).unwrap();
@@ -442,6 +472,7 @@ mod tests {
         }
     }
 
+    /// capture 默认参数校验通过。
     #[test]
     fn test_capture_validate_defaults() {
         let args = CaptureArgs {
@@ -458,6 +489,7 @@ mod tests {
         assert!(args.validate().is_ok());
     }
 
+    /// snaplen 非法值时 capture 校验失败。
     #[test]
     fn test_capture_validate_invalid_snaplen() {
         let args = CaptureArgs {
@@ -475,6 +507,7 @@ mod tests {
         assert!(err.contains("快照长度"));
     }
 
+    /// timeout 非法值时 capture 校验失败。
     #[test]
     fn test_capture_validate_invalid_timeout() {
         let args = CaptureArgs {
@@ -492,6 +525,7 @@ mod tests {
         assert!(err.contains("超时时间"));
     }
 
+    /// count=0 时 capture 校验失败。
     #[test]
     fn test_capture_validate_zero_count() {
         let args = CaptureArgs {
@@ -509,6 +543,7 @@ mod tests {
         assert!(err.contains("包数限制"));
     }
 
+    /// snaplen 最大值边界校验通过。
     #[test]
     fn test_capture_validate_boundary_snaplen_max() {
         let args = CaptureArgs {
@@ -525,6 +560,7 @@ mod tests {
         assert!(args.validate().is_ok());
     }
 
+    /// timeout 最大值边界校验通过。
     #[test]
     fn test_capture_validate_boundary_timeout_max() {
         let args = CaptureArgs {
@@ -545,43 +581,67 @@ mod tests {
     // analyze 子命令测试
     // -----------------------------------------------------------------------
 
+    /// .pcap 扩展名校验通过。
     #[test]
     fn test_analyze_validate_pcap() {
         let args = AnalyzeArgs {
             file: "test.pcap".into(),
             verbose_output: false,
             json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         assert!(args.validate().is_ok());
     }
 
+    /// .pcapng 扩展名校验通过。
     #[test]
     fn test_analyze_validate_pcapng() {
         let args = AnalyzeArgs {
             file: "test.pcapng".into(),
             verbose_output: true,
             json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         assert!(args.validate().is_ok());
     }
 
+    /// 非法扩展名校验失败。
     #[test]
     fn test_analyze_validate_invalid_ext() {
         let args = AnalyzeArgs {
             file: "test.txt".into(),
             verbose_output: false,
             json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("不支持的文件格式"));
     }
 
+    /// 空文件名校验失败。
     #[test]
     fn test_analyze_validate_empty() {
         let args = AnalyzeArgs {
             file: "".into(),
             verbose_output: false,
             json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         let err = args.validate().unwrap_err();
         assert!(err.contains("不能为空"));
@@ -591,6 +651,7 @@ mod tests {
     // stats 子命令测试
     // -----------------------------------------------------------------------
 
+    /// stats 仅指定 interface 通过校验。
     #[test]
     fn test_stats_validate_interface_only() {
         let args = StatsArgs {
@@ -602,6 +663,7 @@ mod tests {
         assert!(args.validate().is_ok());
     }
 
+    /// stats 仅指定 file 通过校验。
     #[test]
     fn test_stats_validate_file_only() {
         let args = StatsArgs {
@@ -613,6 +675,7 @@ mod tests {
         assert!(args.validate().is_ok());
     }
 
+    /// stats interface 和 file 皆空校验失败。
     #[test]
     fn test_stats_validate_both_missing() {
         let args = StatsArgs {
@@ -625,6 +688,7 @@ mod tests {
         assert!(err.contains("--interface") && err.contains("--file"));
     }
 
+    /// top_n=0 时 stats 校验失败。
     #[test]
     fn test_stats_validate_invalid_top_n_zero() {
         let args = StatsArgs {
@@ -637,6 +701,7 @@ mod tests {
         assert!(err.contains("Top N"));
     }
 
+    /// top_n 超上限时 stats 校验失败。
     #[test]
     fn test_stats_validate_invalid_top_n_overflow() {
         let args = StatsArgs {
@@ -649,6 +714,7 @@ mod tests {
         assert!(err.contains("Top N"));
     }
 
+    /// interval=0 时 stats 校验失败。
     #[test]
     fn test_stats_validate_invalid_interval_zero() {
         let args = StatsArgs {
@@ -661,6 +727,7 @@ mod tests {
         assert!(err.contains("统计间隔"));
     }
 
+    /// top_n 最小值边界校验通过。
     #[test]
     fn test_stats_validate_boundary_top_n_min() {
         let args = StatsArgs {
@@ -672,6 +739,7 @@ mod tests {
         assert!(args.validate().is_ok());
     }
 
+    /// top_n 最大值边界校验通过。
     #[test]
     fn test_stats_validate_boundary_top_n_max() {
         let args = StatsArgs {

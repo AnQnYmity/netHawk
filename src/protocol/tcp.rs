@@ -11,6 +11,7 @@
 ///
 /// 头部最小 20 字节（`data_offset` = 5），最大 60 字节。
 /// 序号和确认号字段当前解析但未在输出中使用（留待流重组阶段）。
+#[allow(dead_code)]
 pub struct TCPSegment<'a> {
     /// 源端口号。
     pub src_port: u16,

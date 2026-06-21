@@ -16,9 +16,13 @@
 //!
 //! 同时支持 `RUST_LOG` 环境变量覆盖日志级别。
 
+mod analyse;
 mod capture;
-mod protocol;
 mod cli;
+mod printer;
+mod protocol;
+mod status;
+mod tcp_stream;
 
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -231,6 +235,11 @@ mod tests {
             file: "test.pcap".into(),
             verbose_output: false,
             json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         assert!(args.run().is_ok());
     }
@@ -242,11 +251,16 @@ mod tests {
             file: "test.txt".into(), // 不支持的文件格式
             verbose_output: false,
             json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         assert!(args.run().is_err());
     }
 
-    /// 测试 stats run() 成功执行。
+    /// 测试 stats run()：参数合法，错误只能来自网卡权限/不存在。
     #[test]
     fn test_stats_run_valid() {
         let args = cli::StatsArgs {
@@ -255,7 +269,14 @@ mod tests {
             top_n: 10,
             interval: 1,
         };
-        assert!(args.run().is_ok());
+        let result = args.run();
+        if let Err(ref e) = result {
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("必须指定") && !msg.contains("非法") && !msg.contains("不在合法范围"),
+                "不应该是参数校验错误: {msg}"
+            );
+        }
     }
 
     /// 测试 stats run() 在校验失败时返回错误。
@@ -324,11 +345,18 @@ mod tests {
         assert!(run_app(cli).is_ok());
     }
 
-    /// 测试 run_app 使用有效 stats 命令。
+    /// 测试 run_app 使用有效 stats 命令（参数合法，错误只能来自网卡权限）。
     #[test]
     fn test_run_app_stats_valid() {
         let cli = Cli::try_parse_from(["nethawk", "stats", "-i", "eth0"]).unwrap();
-        assert!(run_app(cli).is_ok());
+        let result = run_app(cli);
+        if let Err(ref e) = result {
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("必须指定") && !msg.contains("非法") && !msg.contains("不在合法范围"),
+                "不应该是参数校验错误: {msg}"
+            );
+        }
     }
 
     /// 测试 run_app 在 analyze 校验失败时返回错误。

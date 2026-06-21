@@ -6,6 +6,8 @@
 //! # 参考
 //! - RFC 1035 §4.1 — DNS 报文格式
 
+#![allow(dead_code)]
+
 /// DNS 报文头部（固定 12 字节）。
 #[derive(Debug, Clone)]
 pub struct DNSHeader {
@@ -85,10 +87,7 @@ impl DNSRequest {
             offset = next;
 
             if offset + 4 > raw.len() {
-                anyhow::bail!(
-                    "DNS 报文截断：问题区字段超出报文末尾（偏移量 {}）",
-                    offset
-                );
+                anyhow::bail!("DNS 报文截断：问题区字段超出报文末尾（偏移量 {}）", offset);
             }
 
             let question = DNSQuestion {
@@ -142,7 +141,11 @@ fn decode_domain_name(raw: &[u8], start: usize) -> anyhow::Result<(String, usize
 
         let end = offset + len as usize;
         if end > raw.len() {
-            anyhow::bail!("域名标签截断：声明 {} 字节，实际仅余 {} 字节", len, raw.len() - offset);
+            anyhow::bail!(
+                "域名标签截断：声明 {} 字节，实际仅余 {} 字节",
+                len,
+                raw.len() - offset
+            );
         }
 
         let label = std::str::from_utf8(&raw[offset..end])
@@ -193,6 +196,7 @@ mod tests {
     // decode_domain_name 测试
     // -----------------------------------------------------------------------
 
+    /// 简单域名解码正确。
     #[test]
     fn test_decode_simple_domain() {
         let domain_bytes = encode_domain("www.example.com");
@@ -201,6 +205,7 @@ mod tests {
         assert_eq!(next, domain_bytes.len());
     }
 
+    /// 单标签域名解码正确。
     #[test]
     fn test_decode_single_label() {
         let raw = vec![4, b't', b'e', b's', b't', 0];
@@ -208,6 +213,7 @@ mod tests {
         assert_eq!(name, "test");
     }
 
+    /// 压缩指针被正确拒绝。
     #[test]
     fn test_decode_compression_pointer_rejected() {
         // 构造一个压缩指针：0xC0 0x0C
@@ -219,6 +225,7 @@ mod tests {
     // DNS header 解析测试
     // -----------------------------------------------------------------------
 
+    /// DNS 查询报文解析正确。
     #[test]
     fn test_dns_parse_query() {
         let domain = encode_domain("google.com");
@@ -236,6 +243,7 @@ mod tests {
         assert_eq!(dns.questions[0].qclass, 1);
     }
 
+    /// DNS AAAA 查询解析正确。
     #[test]
     fn test_dns_parse_aaaa_query() {
         let domain = encode_domain("ipv6.test.org");
@@ -246,6 +254,7 @@ mod tests {
         assert_eq!(dns.questions[0].qname, "ipv6.test.org");
     }
 
+    /// DNS 响应报文解析正确。
     #[test]
     fn test_dns_parse_response() {
         let mut raw = vec![0u8; 12];
@@ -256,6 +265,7 @@ mod tests {
         assert!(dns.header.is_response());
     }
 
+    /// DNS 报文过短返回错误。
     #[test]
     fn test_dns_parse_too_short() {
         let raw = [0u8; 11];

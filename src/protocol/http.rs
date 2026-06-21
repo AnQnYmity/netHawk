@@ -9,6 +9,8 @@
 //! # 参考
 //! - RFC 7230 §3 — HTTP/1.1 Message Format
 
+#![allow(dead_code)]
+
 use std::fmt;
 
 /// HTTP 报文类型。
@@ -54,8 +56,8 @@ impl<'a> HTTPMessage<'a> {
     /// 数据不足（无法找到完整第一行或头部结束标记）时返回错误。
     pub fn parse(raw: &'a [u8]) -> anyhow::Result<Self> {
         // 1. 找到第一行结束位置
-        let first_line_end = find_crlf(raw, 0)
-            .ok_or_else(|| anyhow::anyhow!("HTTP 报文第一行不完整"))?;
+        let first_line_end =
+            find_crlf(raw, 0).ok_or_else(|| anyhow::anyhow!("HTTP 报文第一行不完整"))?;
 
         let first_line = std::str::from_utf8(&raw[..first_line_end])
             .map_err(|_| anyhow::anyhow!("HTTP 第一行包含非法 UTF-8 字节"))?;
@@ -96,8 +98,9 @@ impl<'a> HTTPMessage<'a> {
             let line_end = find_crlf(raw, offset)
                 .ok_or_else(|| anyhow::anyhow!("HTTP 头部行截断（偏移量 {}）", offset))?;
 
-            let header_line = std::str::from_utf8(&raw[offset..line_end])
-                .map_err(|_| anyhow::anyhow!("HTTP 头部包含非法 UTF-8 字节（偏移量 {}）", offset))?;
+            let header_line = std::str::from_utf8(&raw[offset..line_end]).map_err(|_| {
+                anyhow::anyhow!("HTTP 头部包含非法 UTF-8 字节（偏移量 {}）", offset)
+            })?;
 
             if let Some((name, value)) = parse_header_line(header_line) {
                 headers.push((name, value));
@@ -163,9 +166,17 @@ fn find_crlf(raw: &[u8], start: usize) -> Option<usize> {
 ///
 /// - 请求行：`METHOD SP URI SP VERSION`
 /// - 状态行：`VERSION SP CODE SP REASON`
+#[allow(clippy::type_complexity)]
 fn parse_first_line(
     line: &str,
-) -> anyhow::Result<(HTTPMessageKind, Option<String>, Option<String>, String, Option<u16>, Option<String>)> {
+) -> anyhow::Result<(
+    HTTPMessageKind,
+    Option<String>,
+    Option<String>,
+    String,
+    Option<u16>,
+    Option<String>,
+)> {
     let parts: Vec<&str> = line.splitn(3, ' ').collect();
 
     if parts.len() < 2 {
@@ -226,7 +237,12 @@ mod tests {
     use super::*;
 
     /// 构造一个 HTTP 请求报文原始字节。
-    fn make_http_request(method: &str, uri: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
+    fn make_http_request(
+        method: &str,
+        uri: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Vec<u8> {
         let mut raw = format!("{} {} HTTP/1.1\r\n", method, uri).into_bytes();
         for (k, v) in headers {
             raw.extend_from_slice(format!("{}: {}\r\n", k, v).as_bytes());
@@ -237,7 +253,12 @@ mod tests {
     }
 
     /// 构造一个 HTTP 响应报文原始字节。
-    fn make_http_response(code: u16, reason: &str, headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
+    fn make_http_response(
+        code: u16,
+        reason: &str,
+        headers: &[(&str, &str)],
+        body: &[u8],
+    ) -> Vec<u8> {
         let mut raw = format!("HTTP/1.1 {} {}\r\n", code, reason).into_bytes();
         for (k, v) in headers {
             raw.extend_from_slice(format!("{}: {}\r\n", k, v).as_bytes());
@@ -251,6 +272,7 @@ mod tests {
     // 请求解析测试
     // -----------------------------------------------------------------------
 
+    /// 简单 GET 请求解析正确。
     #[test]
     fn test_parse_simple_get() {
         let raw = make_http_request("GET", "/", &[("Host", "example.com")], b"");
@@ -266,6 +288,7 @@ mod tests {
         assert_eq!(msg.body_offset, raw.len()); // body 为空
     }
 
+    /// POST 带 Body 请求解析正确。
     #[test]
     fn test_parse_post_with_body() {
         let body = b"name=value&key=123";
@@ -294,6 +317,7 @@ mod tests {
         assert_eq!(&raw[msg.body_offset..], body);
     }
 
+    /// HTTP/0.9 请求解析正确。
     #[test]
     fn test_parse_http09() {
         // HTTP/0.9 只有 GET 行，无版本号和头部
@@ -308,6 +332,7 @@ mod tests {
     // 响应解析测试
     // -----------------------------------------------------------------------
 
+    /// 简单 HTTP 响应解析正确。
     #[test]
     fn test_parse_simple_response() {
         let raw = make_http_response(200, "OK", &[("Server", "nginx")], b"");
@@ -322,6 +347,7 @@ mod tests {
         assert_eq!(msg.header("Server"), Some("nginx"));
     }
 
+    /// HTTP 404 响应解析正确。
     #[test]
     fn test_parse_404_response() {
         let raw = make_http_response(404, "Not Found", &[], b"<html>...</html>");
@@ -336,17 +362,20 @@ mod tests {
     // 错误处理测试
     // -----------------------------------------------------------------------
 
+    /// 空输入返回错误。
     #[test]
     fn test_parse_empty_input() {
         assert!(HTTPMessage::parse(b"").is_err());
     }
 
+    /// 截断报文返回错误。
     #[test]
     fn test_parse_truncated() {
         let raw = b"GET / HTT"; // 不完整的行，没有 CRLF
         assert!(HTTPMessage::parse(raw).is_err());
     }
 
+    /// 头部无 CRLF 正确处理。
     #[test]
     fn test_parse_no_crlf_in_headers() {
         let raw = b"GET / HTTP/1.1\r\nHost: example.com"; // 头部后面没有 CRLF+CRLF
