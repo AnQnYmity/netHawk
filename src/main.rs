@@ -238,16 +238,17 @@ mod tests {
         // 写入最小 pcap 文件
         let mut f = std::fs::File::create(p).unwrap();
         let hdr: [u8; 24] = [
-            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
-            0,0,0,0, 0,0,0,0, 0xff,0xff,0,0, 1,0,0,0,
+            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0,
+            0, 1, 0, 0, 0,
         ];
         f.write_all(&hdr).unwrap();
         // 一个最小 ICMP 包
         let mut pkt = vec![0u8; 42];
         pkt[12..14].copy_from_slice(&[0x08, 0x00]);
-        pkt[14] = 0x45; pkt[23] = 1;
-        pkt[26..30].copy_from_slice(&[172,24,229,162]);
-        pkt[30..34].copy_from_slice(&[8,8,8,8]);
+        pkt[14] = 0x45;
+        pkt[23] = 1;
+        pkt[26..30].copy_from_slice(&[172, 24, 229, 162]);
+        pkt[30..34].copy_from_slice(&[8, 8, 8, 8]);
         pkt[34..36].copy_from_slice(&[0x08, 0x00]);
         let l = pkt.len() as u32;
         f.write_all(&1u32.to_le_bytes()).unwrap();
@@ -373,8 +374,8 @@ mod tests {
         let p = path.to_str().unwrap();
         let mut f = std::fs::File::create(p).unwrap();
         let hdr: [u8; 24] = [
-            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
-            0,0,0,0, 0,0,0,0, 0xff,0xff,0,0, 1,0,0,0,
+            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0,
+            0, 1, 0, 0, 0,
         ];
         f.write_all(&hdr).unwrap();
         let pkt = vec![0u8; 42];
