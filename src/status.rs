@@ -384,11 +384,7 @@ impl StatAccumulator {
                 self.ipv4_icmp.0 += 1;
                 self.ipv4_icmp.1 += wire_len;
                 if let Some((itype, icode)) = parse_icmp(ipv4.payload) {
-                    self.upsert_session(
-                        src_ip, dst_ip, 1,
-                        icmp_port(itype, icode), 0,
-                        wire_len,
-                    );
+                    self.upsert_session(src_ip, dst_ip, 1, icmp_port(itype, icode), 0, wire_len);
                 }
             }
             _ => {
@@ -430,11 +426,7 @@ impl StatAccumulator {
                 self.ipv6_icmp6.0 += 1;
                 self.ipv6_icmp6.1 += wire_len;
                 if let Some((itype, icode)) = parse_icmp(ipv6.payload) {
-                    self.upsert_session(
-                        src_ip, dst_ip, 58,
-                        icmp_port(itype, icode), 0,
-                        wire_len,
-                    );
+                    self.upsert_session(src_ip, dst_ip, 58, icmp_port(itype, icode), 0, wire_len);
                 }
             }
             _ => {
@@ -453,8 +445,11 @@ impl StatAccumulator {
             let arp_dst = IPv4Packet::format_ip(&arp_info.dst_ip);
             let mac_hint = u16::from_be_bytes([arp_info.dst_mac[4], arp_info.dst_mac[5]]);
             self.upsert_session(
-                arp_src, arp_dst, ARP_PROTO,
-                arp_info.operation, mac_hint,
+                arp_src,
+                arp_dst,
+                ARP_PROTO,
+                arp_info.operation,
+                mac_hint,
                 wire_len,
             );
         }
@@ -825,8 +820,8 @@ mod tests {
         // 写入最小 pcap 文件
         let mut f = std::fs::File::create(ps).unwrap();
         let hdr: [u8; 24] = [
-            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
-            0,0,0,0, 0,0,0,0, 0xff,0xff,0,0, 1,0,0,0,
+            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0,
+            0, 1, 0, 0, 0,
         ];
         f.write_all(&hdr).unwrap();
         let pkt = build_ipv4_tcp_packet();
@@ -839,8 +834,10 @@ mod tests {
         drop(f);
 
         let args = crate::cli::StatsArgs {
-            interface: None, file: Some(ps.to_string()),
-            top_n: 5, interval: 1,
+            interface: None,
+            file: Some(ps.to_string()),
+            top_n: 5,
+            interval: 1,
         };
         let engine = StatEngine::new(&args).unwrap();
         assert!(engine.run().is_ok());

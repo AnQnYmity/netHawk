@@ -461,7 +461,8 @@ mod tests {
     fn make_icmp_ping() -> Vec<u8> {
         let mut raw = vec![0u8; 42];
         raw[12..14].copy_from_slice(&[0x08, 0x00]); // EtherType IPv4
-        raw[14] = 0x45; raw[23] = 1; // IPv4 → ICMP
+        raw[14] = 0x45;
+        raw[23] = 1; // IPv4 → ICMP
         raw[34..36].copy_from_slice(&[0x08, 0x00]); // ICMP type=8, code=0
         raw
     }
@@ -470,7 +471,8 @@ mod tests {
     fn make_tcp_syn() -> Vec<u8> {
         let mut raw = vec![0u8; 54];
         raw[12..14].copy_from_slice(&[0x08, 0x00]);
-        raw[14] = 0x45; raw[23] = 6;
+        raw[14] = 0x45;
+        raw[23] = 6;
         raw[34] = 0x50; // data_offset=5 (20 bytes)
         raw[34 + 13] = 0x02; // SYN flag
         raw

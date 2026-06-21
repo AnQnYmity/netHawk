@@ -105,7 +105,10 @@ mod tests {
         let mut raw = [0u8; 20];
         raw[12..14].copy_from_slice(&[0x99, 0x99]);
         let eth = EthernetFrame::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ethernet(&eth).unwrap(), ParseResult::Unknown));
+        assert!(matches!(
+            dispatch_from_ethernet(&eth).unwrap(),
+            ParseResult::Unknown
+        ));
     }
 
     /// dispatch_from_ethernet 正确路由到 IPv4。
@@ -116,75 +119,106 @@ mod tests {
         raw[14] = 0x45;
         raw[23] = 6;
         let eth = EthernetFrame::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ethernet(&eth).unwrap(), ParseResult::IPv4(_)));
+        assert!(matches!(
+            dispatch_from_ethernet(&eth).unwrap(),
+            ParseResult::IPv4(_)
+        ));
     }
 
     /// dispatch_from_ipv4 正确路由到 TCP。
     #[test]
     fn dispatch_ipv4_to_tcp() {
         let mut raw = vec![0u8; 40]; // 20 IP + 20 TCP
-        raw[0] = 0x45; raw[9] = 6;
+        raw[0] = 0x45;
+        raw[9] = 6;
         raw[32] = 0x50; // TCP data_offset=5 at payload[12]
         let ipv4 = IPv4Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv4(&ipv4).unwrap(), ParseResult::TCP(_)));
+        assert!(matches!(
+            dispatch_from_ipv4(&ipv4).unwrap(),
+            ParseResult::TCP(_)
+        ));
     }
 
     /// dispatch_from_ipv4 正确路由到 UDP。
     #[test]
     fn dispatch_ipv4_to_udp() {
         let mut raw = vec![0u8; 28]; // 20 IP + 8 UDP
-        raw[0] = 0x45; raw[9] = 17; // UDP
+        raw[0] = 0x45;
+        raw[9] = 17; // UDP
         raw[24..26].copy_from_slice(&8u16.to_be_bytes()); // UDP length
         let ipv4 = IPv4Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv4(&ipv4).unwrap(), ParseResult::UDP(_)));
+        assert!(matches!(
+            dispatch_from_ipv4(&ipv4).unwrap(),
+            ParseResult::UDP(_)
+        ));
     }
 
     /// dispatch_from_ipv4 正确路由到 ICMP。
     #[test]
     fn dispatch_ipv4_to_icmp() {
         let mut raw = vec![0u8; 24]; // 20 IP + 4 ICMP
-        raw[0] = 0x45; raw[9] = 1; // ICMP
+        raw[0] = 0x45;
+        raw[9] = 1; // ICMP
         let ipv4 = IPv4Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv4(&ipv4).unwrap(), ParseResult::ICMP(_)));
+        assert!(matches!(
+            dispatch_from_ipv4(&ipv4).unwrap(),
+            ParseResult::ICMP(_)
+        ));
     }
 
     /// dispatch_from_ipv4 未知协议返回 Unknown。
     #[test]
     fn dispatch_ipv4_unknown_proto() {
         let mut raw = vec![0u8; 20];
-        raw[0] = 0x45; raw[9] = 99; // 未知
+        raw[0] = 0x45;
+        raw[9] = 99; // 未知
         let ipv4 = IPv4Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv4(&ipv4).unwrap(), ParseResult::Unknown));
+        assert!(matches!(
+            dispatch_from_ipv4(&ipv4).unwrap(),
+            ParseResult::Unknown
+        ));
     }
 
     /// dispatch_from_ipv6 正确路由到 TCP。
     #[test]
     fn dispatch_ipv6_to_tcp() {
         let mut raw = vec![0u8; 60]; // 40 IPv6 + 20 TCP
-        raw[0] = 0x60; raw[6] = 6;
+        raw[0] = 0x60;
+        raw[6] = 6;
         raw[4..6].copy_from_slice(&20u16.to_be_bytes()); // payload_len
         raw[52] = 0x50; // TCP data_offset=5 at payload[12]
         let ipv6 = IPv6Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv6(&ipv6).unwrap(), ParseResult::TCP(_)));
+        assert!(matches!(
+            dispatch_from_ipv6(&ipv6).unwrap(),
+            ParseResult::TCP(_)
+        ));
     }
 
     /// dispatch_from_ipv6 正确路由到 UDP。
     #[test]
     fn dispatch_ipv6_to_udp() {
         let mut raw = vec![0u8; 48]; // 40 IPv6 + 8 UDP
-        raw[0] = 0x60; raw[6] = 17;
+        raw[0] = 0x60;
+        raw[6] = 17;
         raw[4..6].copy_from_slice(&8u16.to_be_bytes()); // IPv6 payload len
         raw[44..46].copy_from_slice(&8u16.to_be_bytes()); // UDP length at payload[4]
         let ipv6 = IPv6Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv6(&ipv6).unwrap(), ParseResult::UDP(_)));
+        assert!(matches!(
+            dispatch_from_ipv6(&ipv6).unwrap(),
+            ParseResult::UDP(_)
+        ));
     }
 
     /// dispatch_from_ipv6 未知 Next Header 返回 Unknown。
     #[test]
     fn dispatch_ipv6_unknown_nh() {
         let mut raw = vec![0u8; 40];
-        raw[0] = 0x60; raw[6] = 99;
+        raw[0] = 0x60;
+        raw[6] = 99;
         let ipv6 = IPv6Packet::parse(&raw).unwrap();
-        assert!(matches!(dispatch_from_ipv6(&ipv6).unwrap(), ParseResult::Unknown));
+        assert!(matches!(
+            dispatch_from_ipv6(&ipv6).unwrap(),
+            ParseResult::Unknown
+        ));
     }
 }

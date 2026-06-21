@@ -242,32 +242,32 @@ impl AnalyzeEngine {
         if let Some((tcp_payload, src, dst, sp, dp)) = ip_payload
             && let Some(hello) = parse_client_hello(tcp_payload)
         {
-                println!("\n── TLS ClientHello ──");
-                println!("  {src}:{sp} → {dst}:{dp}");
-                println!(
-                    "  Record Version: {}",
-                    tls::version_name(hello.record_version)
-                );
-                println!(
-                    "  Client Version: {}",
-                    tls::version_name(hello.client_version)
-                );
-                if let Some(ref sni) = hello.sni {
-                    println!("  SNI: {sni}");
+            println!("\n── TLS ClientHello ──");
+            println!("  {src}:{sp} → {dst}:{dp}");
+            println!(
+                "  Record Version: {}",
+                tls::version_name(hello.record_version)
+            );
+            println!(
+                "  Client Version: {}",
+                tls::version_name(hello.client_version)
+            );
+            if let Some(ref sni) = hello.sni {
+                println!("  SNI: {sni}");
+            }
+            if !hello.cipher_suites.is_empty() {
+                println!("  Cipher Suites ({}):", hello.cipher_suites.len());
+                for &cs in &hello.cipher_suites[..hello.cipher_suites.len().min(10)] {
+                    println!("    - {:#06x}  {}", cs, tls::cipher_suite_name(cs));
                 }
-                if !hello.cipher_suites.is_empty() {
-                    println!("  Cipher Suites ({}):", hello.cipher_suites.len());
-                    for &cs in &hello.cipher_suites[..hello.cipher_suites.len().min(10)] {
-                        println!("    - {:#06x}  {}", cs, tls::cipher_suite_name(cs));
-                    }
-                    if hello.cipher_suites.len() > 10 {
-                        println!("    ... and {} more", hello.cipher_suites.len() - 10);
-                    }
-                }
-                if !hello.alpn.is_empty() {
-                    println!("  ALPN: {}", hello.alpn.join(", "));
+                if hello.cipher_suites.len() > 10 {
+                    println!("    ... and {} more", hello.cipher_suites.len() - 10);
                 }
             }
+            if !hello.alpn.is_empty() {
+                println!("  ALPN: {}", hello.alpn.join(", "));
+            }
+        }
     }
 
     /// 尝试从 UDP 载荷中检测 DHCP 报文。
@@ -308,33 +308,33 @@ impl AnalyzeEngine {
         if let Some((udp_payload, src, dst, sp, dp)) = dhcp_data
             && let Ok(dhcp) = DhcpPacket::parse(udp_payload)
         {
-                let msg_type = dhcp
-                    .message_type()
-                    .map(|t| t.name().to_string())
-                    .unwrap_or_else(|| "???".to_string());
-                println!("\n── DHCP ──");
-                println!("  {src}:{sp} → {dst}:{dp}");
-                println!("  Message: {msg_type}  (xid={:#010x})", dhcp.xid);
-                println!(
-                    "  Client MAC: {}",
-                    dhcp::format_mac(&dhcp.chaddr[0..dhcp.hlen as usize])
-                );
-                if dhcp.yiaddr != [0, 0, 0, 0] {
-                    println!("  Assigned IP: {}", dhcp::format_ipv4(&dhcp.yiaddr));
-                }
-                if let Some(req_ip) = dhcp.requested_ip() {
-                    println!("  Requested IP: {}", dhcp::format_ipv4(&req_ip));
-                }
-                if let Some(srv_id) = dhcp.server_identifier() {
-                    println!("  DHCP Server: {}", dhcp::format_ipv4(&srv_id));
-                }
-                if self.verbose {
-                    println!("  Options ({}):", dhcp.options.len());
-                    for opt in &dhcp.options {
-                        println!("    Option {} ({} bytes)", opt.code, opt.value.len());
-                    }
+            let msg_type = dhcp
+                .message_type()
+                .map(|t| t.name().to_string())
+                .unwrap_or_else(|| "???".to_string());
+            println!("\n── DHCP ──");
+            println!("  {src}:{sp} → {dst}:{dp}");
+            println!("  Message: {msg_type}  (xid={:#010x})", dhcp.xid);
+            println!(
+                "  Client MAC: {}",
+                dhcp::format_mac(&dhcp.chaddr[0..dhcp.hlen as usize])
+            );
+            if dhcp.yiaddr != [0, 0, 0, 0] {
+                println!("  Assigned IP: {}", dhcp::format_ipv4(&dhcp.yiaddr));
+            }
+            if let Some(req_ip) = dhcp.requested_ip() {
+                println!("  Requested IP: {}", dhcp::format_ipv4(&req_ip));
+            }
+            if let Some(srv_id) = dhcp.server_identifier() {
+                println!("  DHCP Server: {}", dhcp::format_ipv4(&srv_id));
+            }
+            if self.verbose {
+                println!("  Options ({}):", dhcp.options.len());
+                for opt in &dhcp.options {
+                    println!("    Option {} ({} bytes)", opt.code, opt.value.len());
                 }
             }
+        }
     }
 
     /// 将数据包喂入 TCP 流跟踪器。
@@ -428,14 +428,14 @@ fn count_http_requests(data: &[u8]) -> usize {
     if let Ok(text) = std::str::from_utf8(data) {
         text.lines()
             .filter(|line| {
-                line.starts_with("GET ")     ||
-                line.starts_with("POST ")    ||
-                line.starts_with("PUT ")     ||
-                line.starts_with("DELETE ")  ||
-                line.starts_with("HEAD ")    ||
-                line.starts_with("OPTIONS ") ||
-                line.starts_with("PATCH ")   ||
-                line.starts_with("CONNECT ")
+                line.starts_with("GET ")
+                    || line.starts_with("POST ")
+                    || line.starts_with("PUT ")
+                    || line.starts_with("DELETE ")
+                    || line.starts_with("HEAD ")
+                    || line.starts_with("OPTIONS ")
+                    || line.starts_with("PATCH ")
+                    || line.starts_with("CONNECT ")
             })
             .count()
     } else {
@@ -456,13 +456,15 @@ mod tests {
     fn write_test_pcap(path: &str, packets: &[&[u8]]) {
         let mut f = std::fs::File::create(path).unwrap();
         let hdr: [u8; 24] = [
-            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
-            0,0,0,0, 0,0,0,0, 0xff,0xff,0,0, 1,0,0,0,
+            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0,
+            0, 1, 0, 0, 0,
         ];
         f.write_all(&hdr).unwrap();
         let mut ts = 1_000_000u32;
         for &pkt in packets {
-            let s = ts/1_000_000; let u = ts%1_000_000; let l = pkt.len() as u32;
+            let s = ts / 1_000_000;
+            let u = ts % 1_000_000;
+            let l = pkt.len() as u32;
             f.write_all(&s.to_le_bytes()).unwrap();
             f.write_all(&u.to_le_bytes()).unwrap();
             f.write_all(&l.to_le_bytes()).unwrap();
@@ -475,12 +477,14 @@ mod tests {
     fn make_icmp() -> Vec<u8> {
         let mut raw = vec![0u8; 42];
         raw[12..14].copy_from_slice(&[0x08, 0x00]);
-        raw[14] = 0x45; raw[22] = 64; raw[23] = 1;
-        raw[26..30].copy_from_slice(&[172,24,229,162]);
-        raw[30..34].copy_from_slice(&[8,8,8,8]);
+        raw[14] = 0x45;
+        raw[22] = 64;
+        raw[23] = 1;
+        raw[26..30].copy_from_slice(&[172, 24, 229, 162]);
+        raw[30..34].copy_from_slice(&[8, 8, 8, 8]);
         raw[34..36].copy_from_slice(&[0x08, 0x00]);
-        raw[38..40].copy_from_slice(&[0,1]);
-        raw[40..42].copy_from_slice(&[0,1]);
+        raw[38..40].copy_from_slice(&[0, 1]);
+        raw[40..42].copy_from_slice(&[0, 1]);
         raw
     }
 
@@ -493,8 +497,14 @@ mod tests {
         let pkt = make_icmp();
         write_test_pcap(ps, &[&pkt]);
         let args = crate::cli::AnalyzeArgs {
-            file: ps.to_string(), verbose_output: false, json_output: false,
-            hex: false, follow_http: false, tls: false, dhcp: false, export: false,
+            file: ps.to_string(),
+            verbose_output: false,
+            json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         let e = AnalyzeEngine::new(&args).unwrap();
         assert!(e.run().is_ok());
@@ -509,8 +519,14 @@ mod tests {
         let ps = path.to_str().unwrap();
         write_test_pcap(ps, &[&make_icmp()]);
         let args = crate::cli::AnalyzeArgs {
-            file: ps.to_string(), verbose_output: true, json_output: false,
-            hex: false, follow_http: false, tls: false, dhcp: false, export: false,
+            file: ps.to_string(),
+            verbose_output: true,
+            json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: false,
+            export: false,
         };
         assert!(AnalyzeEngine::new(&args).unwrap().run().is_ok());
         let _ = std::fs::remove_file(&path);
@@ -524,8 +540,14 @@ mod tests {
         let ps = path.to_str().unwrap();
         write_test_pcap(ps, &[&make_icmp()]);
         let args = crate::cli::AnalyzeArgs {
-            file: ps.to_string(), verbose_output: false, json_output: false,
-            hex: false, follow_http: false, tls: true, dhcp: false, export: false,
+            file: ps.to_string(),
+            verbose_output: false,
+            json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: true,
+            dhcp: false,
+            export: false,
         };
         assert!(AnalyzeEngine::new(&args).unwrap().run().is_ok());
         let _ = std::fs::remove_file(&path);
@@ -539,8 +561,14 @@ mod tests {
         let ps = path.to_str().unwrap();
         write_test_pcap(ps, &[&make_icmp()]);
         let args = crate::cli::AnalyzeArgs {
-            file: ps.to_string(), verbose_output: false, json_output: false,
-            hex: false, follow_http: false, tls: false, dhcp: true, export: false,
+            file: ps.to_string(),
+            verbose_output: false,
+            json_output: false,
+            hex: false,
+            follow_http: false,
+            tls: false,
+            dhcp: true,
+            export: false,
         };
         assert!(AnalyzeEngine::new(&args).unwrap().run().is_ok());
         let _ = std::fs::remove_file(&path);
