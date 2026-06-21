@@ -88,7 +88,7 @@ nethawk stats -f dump.pcap
 
 | 层级 | 协议 |
 |------|------|
-| L2 | Ethernet II, 802.1Q VLAN |
+| L2 | Ethernet II |
 | L3 | IPv4, IPv6, ARP |
 | L4 | TCP, UDP, ICMP, ICMPv6 |
 | L7 | HTTP/1.x, DNS, TLS (ClientHello), DHCP |
