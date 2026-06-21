@@ -5,6 +5,7 @@
 //! - 各子命令参数校验（合法/非法输入）
 //! - analyze 离线分析基本流程
 
+use std::io::Write;
 use std::process::Command;
 
 /// 获取二进制路径。
@@ -35,6 +36,27 @@ fn assert_err(cmd: &mut Command) -> String {
     stderr
 }
 
+/// 生成一个最小 pcap 文件，返回路径。
+fn gen_pcap() -> String {
+    let dir = std::env::temp_dir();
+    let path = dir.join("test_cli.pcap");
+    let p = path.to_str().unwrap().to_string();
+    let mut f = std::fs::File::create(&p).unwrap();
+    let hdr: [u8; 24] = [
+        0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0,
+        1, 0, 0, 0,
+    ];
+    f.write_all(&hdr).unwrap();
+    let pkt = vec![0u8; 42];
+    let l = pkt.len() as u32;
+    f.write_all(&1u32.to_le_bytes()).unwrap();
+    f.write_all(&0u32.to_le_bytes()).unwrap();
+    f.write_all(&l.to_le_bytes()).unwrap();
+    f.write_all(&l.to_le_bytes()).unwrap();
+    f.write_all(&pkt).unwrap();
+    p
+}
+
 // ============================================================================
 // 全局选项
 // ============================================================================
@@ -55,7 +77,9 @@ fn version_output() {
 
 #[test]
 fn verbose_flag_accepted() {
-    assert_ok(bin().arg("-vv").arg("analyze").arg("test.pcap"));
+    let tmp = gen_pcap();
+    assert_ok(bin().arg("-vv").arg("analyze").arg(&tmp));
+    let _ = std::fs::remove_file(&tmp);
 }
 
 // ============================================================================
@@ -114,17 +138,27 @@ fn analyze_invalid_extension() {
 
 #[test]
 fn analyze_valid_pcapng() {
-    let out = assert_ok(bin().arg("analyze").arg("test.pcapng"));
+    let tmp = gen_pcap();
+    // 重命名为 .pcapng
+    let pcapng = tmp.replace(".pcap", ".pcapng");
+    std::fs::rename(&tmp, &pcapng).unwrap();
+    let out = assert_ok(bin().arg("analyze").arg(&pcapng));
     assert!(
-        out.contains("离线分析") || out.contains("analyze"),
-        "应进入 analyze 模式"
+        out.contains("共分析了") || out.contains("数据包"),
+        "应进入 analyze 模式: {out}"
     );
+    let _ = std::fs::remove_file(&pcapng);
 }
 
 #[test]
 fn analyze_verbose_flag() {
-    let out = assert_ok(bin().arg("analyze").arg("-V").arg("test.pcap"));
-    assert!(out.contains("离线分析"), "verbose 模式下应正常进入分析");
+    let tmp = gen_pcap();
+    let out = assert_ok(bin().arg("analyze").arg("-V").arg(&tmp));
+    assert!(
+        out.contains("共分析了") || out.contains("Ethernet"),
+        "verbose 模式下应正常进入分析: {out}"
+    );
+    let _ = std::fs::remove_file(&tmp);
 }
 
 #[test]
@@ -152,14 +186,26 @@ fn stats_missing_source() {
 
 #[test]
 fn stats_interface_valid() {
-    let out = assert_ok(bin().arg("stats").arg("-i").arg("eth0"));
-    assert!(out.contains("流量统计") || out.contains("stats"));
+    let result = bin()
+        .arg("stats")
+        .arg("-i")
+        .arg("eth0")
+        .output()
+        .expect("启动失败");
+    let stderr = String::from_utf8_lossy(&result.stderr).to_string();
+    // CI 无 root 权限，应报网卡错误而非参数校验错误
+    assert!(
+        !stderr.contains("必须指定") && !stderr.contains("不在合法范围"),
+        "不应该是参数校验错误: {stderr}"
+    );
 }
 
 #[test]
 fn stats_file_valid() {
-    let out = assert_ok(bin().arg("stats").arg("-f").arg("test.pcap"));
+    let tmp = gen_pcap();
+    let out = assert_ok(bin().arg("stats").arg("-f").arg(&tmp));
     assert!(out.contains("流量统计") || out.contains("stats"));
+    let _ = std::fs::remove_file(&tmp);
 }
 
 #[test]
@@ -176,15 +222,20 @@ fn stats_invalid_interval() {
 
 #[test]
 fn stats_custom_interval() {
-    let out = assert_ok(
-        bin()
-            .arg("stats")
-            .arg("-i")
-            .arg("eth0")
-            .arg("-n")
-            .arg("20")
-            .arg("-I")
-            .arg("5"),
+    let result = bin()
+        .arg("stats")
+        .arg("-i")
+        .arg("eth0")
+        .arg("-n")
+        .arg("20")
+        .arg("-I")
+        .arg("5")
+        .output()
+        .expect("启动失败");
+    let stderr = String::from_utf8_lossy(&result.stderr).to_string();
+    // CI 无 root 权限，应报网卡错误而非参数校验错误
+    assert!(
+        !stderr.contains("必须指定") && !stderr.contains("不在合法范围"),
+        "不应该是参数校验错误: {stderr}"
     );
-    assert!(out.contains("20") || out.contains("5"), "应接受自定义参数");
 }
