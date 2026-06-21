@@ -491,8 +491,10 @@ mod tests {
     /// AnalyzeEngine 默认模式正常运行。
     #[test]
     fn engine_runs_on_pcap() {
+        static CNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let id = CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_a.pcap");
+        let path = dir.join(format!("test_a_{id}.pcap"));
         let ps = path.to_str().unwrap();
         let pkt = make_icmp();
         write_test_pcap(ps, &[&pkt]);
@@ -514,8 +516,10 @@ mod tests {
     /// AnalyzeEngine 详细模式正常运行。
     #[test]
     fn engine_verbose_mode() {
+        static CNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let id = CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_av.pcap");
+        let path = dir.join(format!("test_av_{id}.pcap"));
         let ps = path.to_str().unwrap();
         write_test_pcap(ps, &[&make_icmp()]);
         let args = crate::cli::AnalyzeArgs {
@@ -535,8 +539,10 @@ mod tests {
     /// AnalyzeEngine --tls 模式不 panic。
     #[test]
     fn engine_tls_mode() {
+        static CNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let id = CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_atls.pcap");
+        let path = dir.join(format!("test_atls_{id}.pcap"));
         let ps = path.to_str().unwrap();
         write_test_pcap(ps, &[&make_icmp()]);
         let args = crate::cli::AnalyzeArgs {
@@ -556,8 +562,10 @@ mod tests {
     /// AnalyzeEngine --dhcp 模式不 panic。
     #[test]
     fn engine_dhcp_mode() {
+        static CNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let id = CNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_adhcp.pcap");
+        let path = dir.join(format!("test_adhcp_{id}.pcap"));
         let ps = path.to_str().unwrap();
         write_test_pcap(ps, &[&make_icmp()]);
         let args = crate::cli::AnalyzeArgs {

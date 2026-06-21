@@ -36,10 +36,13 @@ fn assert_err(cmd: &mut Command) -> String {
     stderr
 }
 
-/// 生成一个最小 pcap 文件，返回路径。
+/// 生成一个最小 pcap 文件，返回路径（文件名含随机后缀避免并行冲突）。
 fn gen_pcap() -> String {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static CNT: AtomicU32 = AtomicU32::new(0);
+    let id = CNT.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir();
-    let path = dir.join("test_cli.pcap");
+    let path = dir.join(format!("test_cli_{id}.pcap"));
     let p = path.to_str().unwrap().to_string();
     let mut f = std::fs::File::create(&p).unwrap();
     let hdr: [u8; 24] = [

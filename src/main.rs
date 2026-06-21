@@ -232,8 +232,11 @@ mod tests {
     /// 测试 analyze run() 成功执行（使用临时 pcap 文件）。
     #[test]
     fn test_analyze_run_valid() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CNT: AtomicU32 = AtomicU32::new(0);
+        let id = CNT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_main_analyze.pcap");
+        let path = dir.join(format!("test_main_analyze_{id}.pcap"));
         let p = path.to_str().unwrap();
         // 写入最小 pcap 文件
         let mut f = std::fs::File::create(p).unwrap();
@@ -369,8 +372,11 @@ mod tests {
     /// 测试 run_app 使用有效 analyze 命令（临时 pcap 文件）。
     #[test]
     fn test_run_app_analyze_valid() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CNT: AtomicU32 = AtomicU32::new(0);
+        let id = CNT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_main_runapp.pcap");
+        let path = dir.join(format!("test_main_runapp_{id}.pcap"));
         let p = path.to_str().unwrap();
         let mut f = std::fs::File::create(p).unwrap();
         let hdr: [u8; 24] = [

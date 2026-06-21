@@ -814,8 +814,11 @@ mod tests {
     #[test]
     fn stat_engine_file_mode() {
         use std::io::Write;
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static CNT: AtomicU32 = AtomicU32::new(0);
+        let id = CNT.fetch_add(1, Ordering::Relaxed);
         let dir = std::env::temp_dir();
-        let path = dir.join("test_stat.pcap");
+        let path = dir.join(format!("test_stat_{id}.pcap"));
         let ps = path.to_str().unwrap();
         // 写入最小 pcap 文件
         let mut f = std::fs::File::create(ps).unwrap();
