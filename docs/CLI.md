@@ -35,15 +35,24 @@ nethawk capture [OPTIONS]
 | `-w, --write` | 无 | 输出 pcap 文件路径 |
 | `-s, --snaplen` | `65535` | 快照长度（1–65535 字节） |
 | `-t, --timeout` | `1000` | 超时时间（1–3600000 毫秒） |
+| `-V, --verbose-output` | — | 展开所有协议字段（详细模式） |
+| `-H, --hex` | — | 附带十六进制 raw dump |
+| `-j, --json` | — | JSON 格式输出（需 `--features json` 编译） |
 
 **示例：**
 
 ```bash
 # 在 eth0 上捕获 100 个包，仅 TCP 80 端口
-nethawk capture -i eth0 -c 100 -f "tcp port 80"
+sudo nethawk capture -i eth0 -c 100 -f "tcp port 80"
 
 # 捕获所有接口的包并写入文件
-nethawk capture -w capture.pcap
+sudo nethawk capture -w capture.pcap
+
+# 详细输出 + 十六进制 dump
+sudo nethawk capture -i eth0 -V -H
+
+# JSON 格式输出，管道消费
+sudo nethawk capture -i eth0 -j | jq '.src_ip'
 ```
 
 ### `nethawk analyze` — 离线 pcap 分析
@@ -58,7 +67,15 @@ nethawk analyze [OPTIONS] <FILE>
 
 | 选项 | 说明 |
 |------|------|
-| `-V, --verbose-output` | 显示详细协议字段 |
+| `-V, --verbose-output` | 展开所有协议字段（详细模式） |
+| `-H, --hex` | 附带十六进制 raw dump |
+| `-j, --json` | JSON 格式输出（需 `--features json` 编译） |
+| `-F, --follow-http` | 跟踪所有 TCP 流并统计 HTTP 请求数 |
+| `--tls` | 提取 TLS ClientHello（SNI、加密套件） |
+| `--dhcp` | 提取 DHCP 报文（消息类型、分配 IP） |
+| `--export` | 按 TCP 流导出 HTTP 请求/响应到文件 |
+
+> 默认模式、`--follow-http`、`--tls`、`--dhcp` 四者互斥，同时只能启用一个。
 
 **参数：**
 
@@ -67,7 +84,20 @@ nethawk analyze [OPTIONS] <FILE>
 **示例：**
 
 ```bash
+# 默认摘要模式
+nethawk analyze capture.pcap
+
+# 详细逐包展开
 nethawk analyze capture.pcap -V
+
+# 审计 HTTPS 访问域名
+nethawk analyze capture.pcap --tls
+
+# 跟踪 HTTP 流量并显示 TCP 流详情
+nethawk analyze capture.pcap -F -V
+
+# 导出 HTTP 内容文件
+nethawk analyze capture.pcap --export
 ```
 
 ### `nethawk stats` — 流量统计摘要
@@ -98,6 +128,6 @@ nethawk stats -i eth0 -n 20 -I 5
 nethawk stats -f capture.pcap
 ```
 
-## 开发阶段
+## 当前版本
 
-当前为 **阶段 0**：项目骨架。subcommand 实际功能正在开发中。
+v0.3.0 — 核心功能完整：实时抓包、离线分析、流量统计、协议深度解析（Ethernet / IPv4 / IPv6 / ARP / TCP / UDP / ICMP / HTTP / DNS / TLS / DHCP）、TCP 流跟踪与 HTTP 导出。

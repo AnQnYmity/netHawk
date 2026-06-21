@@ -70,11 +70,35 @@
 ### Known Issues
 - ARP 暂不支持。
 
-## [0.3.0] - 2026-06-11
-- 支持彩色的终端输出，修复了模糊测试下部分 payload 越界的情况。
-- 支持 json 输出
-- 支持 16 进制输出
+## [0.3.0] - 2026-06-21
+
+### Added
+- 完整协议解析栈：Ethernet / IPv4 / IPv6 / ARP / TCP / UDP / ICMP / HTTP/1.x / DNS / TLS / DHCP
+- 802.1Q VLAN Tag 自动识别与跳过
+- 实时数据包捕获引擎 `CaptureEngine`（非阻塞模式 + SIGINT 优雅退出）
+- 离线分析引擎 `AnalyzeEngine`（pcap 文件加载、TLS/DHCP 深度检测）
+- TCP 流跟踪与重组 `TcpStreamTracker`（五元组归一化、乱序容忍、HTTP 请求统计）
+- 流量统计引擎 `StatEngine`（文件模式 + 实时模式，协议分布、Top N 会话）
+- 三种输出格式：单行摘要 / 详细逐层展开 / JSON 行
+- 彩色终端输出（ANSI 转义）
+- 十六进制 raw dump 支持（`-H` / `--hex`）
+- HTTP 请求/响应按 TCP 流导出（`--export`）
+- CLI 参数校验（范围检查、互斥参数、扩展名验证）
+- `proptest` 模糊测试（EthernetFrame / IPv4Packet / IPv6Packet）
+- `docs/CLI.md`、`docs/ARCHITECTURE.md`、`docs/PROTOCOL.md` 完整文档
+
+### Changed
+- 协议路由分发函数（`dispatch_from_*`）统一到 `protocol/mod.rs`，消除跨模块重复
+- `StatAccumulator::feed()` 拆分为 `feed_ipv4` / `feed_ipv6` / `feed_arp`，降低圈复杂度
+- 错误处理统一使用 `anyhow::Result`（bin）和自定义错误类型（lib）
+
+### Fixed
+- `FiveTuple` 归一化：`new()` 实际比较字节序，修复方向一致性 bug
+- `as i64` 跨平台类型转换保留，添加 `#[allow(clippy::unnecessary_cast)]` 说明
+- 所有 `dead_code` 警告消除（协议预留字段/方法加 `#[allow(dead_code)]`）
+- 修复协议号 17 映射为 TCP 的 bug（应为 UDP）
+- UDPSegment 补全字段与 parse() 方法
+- proptest 模糊测试下部分 payload 越界修复
 
 ### Known Issues
-- ICMP, ARP 等暂不支持。
-- 彩色文本在非黑白色终端下可能视觉效果较差。
+- 测试覆盖率 59.75%，IO 输出函数受 tarpaulin 插桩限制
