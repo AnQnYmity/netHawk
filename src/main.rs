@@ -98,6 +98,7 @@ fn init_logging(verbose: u8) {
 mod tests {
     use super::*;
     use clap::Parser;
+    use std::io::Write;
 
     // -----------------------------------------------------------------------
     // CLI 解析测试
@@ -228,11 +229,36 @@ mod tests {
         assert!(args.run().is_err());
     }
 
-    /// 测试 analyze run() 成功执行。
+    /// 测试 analyze run() 成功执行（使用临时 pcap 文件）。
     #[test]
     fn test_analyze_run_valid() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_main_analyze.pcap");
+        let p = path.to_str().unwrap();
+        // 写入最小 pcap 文件
+        let mut f = std::fs::File::create(p).unwrap();
+        let hdr: [u8; 24] = [
+            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
+            0,0,0,0, 0,0,0,0, 0xff,0xff,0,0, 1,0,0,0,
+        ];
+        f.write_all(&hdr).unwrap();
+        // 一个最小 ICMP 包
+        let mut pkt = vec![0u8; 42];
+        pkt[12..14].copy_from_slice(&[0x08, 0x00]);
+        pkt[14] = 0x45; pkt[23] = 1;
+        pkt[26..30].copy_from_slice(&[172,24,229,162]);
+        pkt[30..34].copy_from_slice(&[8,8,8,8]);
+        pkt[34..36].copy_from_slice(&[0x08, 0x00]);
+        let l = pkt.len() as u32;
+        f.write_all(&1u32.to_le_bytes()).unwrap();
+        f.write_all(&0u32.to_le_bytes()).unwrap();
+        f.write_all(&l.to_le_bytes()).unwrap();
+        f.write_all(&l.to_le_bytes()).unwrap();
+        f.write_all(&pkt).unwrap();
+        drop(f);
+
         let args = cli::AnalyzeArgs {
-            file: "test.pcap".into(),
+            file: p.to_string(),
             verbose_output: false,
             json_output: false,
             hex: false,
@@ -242,6 +268,7 @@ mod tests {
             export: false,
         };
         assert!(args.run().is_ok());
+        let _ = std::fs::remove_file(&path);
     }
 
     /// 测试 analyze run() 在校验失败时返回错误。
@@ -338,11 +365,30 @@ mod tests {
         }
     }
 
-    /// 测试 run_app 使用有效 analyze 命令。
+    /// 测试 run_app 使用有效 analyze 命令（临时 pcap 文件）。
     #[test]
     fn test_run_app_analyze_valid() {
-        let cli = Cli::try_parse_from(["nethawk", "analyze", "test.pcap"]).unwrap();
+        let dir = std::env::temp_dir();
+        let path = dir.join("test_main_runapp.pcap");
+        let p = path.to_str().unwrap();
+        let mut f = std::fs::File::create(p).unwrap();
+        let hdr: [u8; 24] = [
+            0xd4, 0xc3, 0xb2, 0xa1, 0x02, 0x00, 0x04, 0x00,
+            0,0,0,0, 0,0,0,0, 0xff,0xff,0,0, 1,0,0,0,
+        ];
+        f.write_all(&hdr).unwrap();
+        let pkt = vec![0u8; 42];
+        let l = pkt.len() as u32;
+        f.write_all(&1u32.to_le_bytes()).unwrap();
+        f.write_all(&0u32.to_le_bytes()).unwrap();
+        f.write_all(&l.to_le_bytes()).unwrap();
+        f.write_all(&l.to_le_bytes()).unwrap();
+        f.write_all(&pkt).unwrap();
+        drop(f);
+
+        let cli = Cli::try_parse_from(["nethawk", "analyze", p]).unwrap();
         assert!(run_app(cli).is_ok());
+        let _ = std::fs::remove_file(&path);
     }
 
     /// 测试 run_app 使用有效 stats 命令（参数合法，错误只能来自网卡权限）。
